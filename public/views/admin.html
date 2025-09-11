@@ -1,7 +1,38 @@
-<div class="w-full max-w-2xl p-6 bg-white rounded-xl shadow-md">
-    <h1 class="text-3xl font-bold mb-4">Welcome, {{.User}}!</h1>
-    <p class="mb-4">This is your dashboard. You can add content here later.</p>
-    <a href="/logout" class="inline-block bg-gray-200 px-4 py-2 rounded hover:bg-gray-300">
-        Log out
-    </a>
+<div class="w-full max-w-5xl p-6 bg-white rounded-xl shadow-md">
+    <div class="flex items-center justify-between">
+        <h1 class="text-2xl font-bold">Admin</h1>
+        <a href="/dashboard" class="text-blue-600 hover:underline">Back to dashboard</a>
+    </div>
+
+    <div class="mt-6 grid grid-cols-1 md:grid-cols-3 gap-4">
+        <section class="p-4 border rounded-lg">
+            <h2 class="font-semibold mb-2">Competitions</h2>
+            <ul id="competitions" class="space-y-2 text-sm text-gray-700"></ul>
+        </section>
+
+        <section class="p-4 border rounded-lg">
+            <h2 class="font-semibold mb-2">Teams</h2>
+            <ul id="teams" class="space-y-2 text-sm text-gray-700"></ul>
+        </section>
+
+        <section class="p-4 border rounded-lg">
+            <h2 class="font-semibold mb-2">Containers</h2>
+            <ul id="containers" class="space-y-2 text-sm text-gray-700"></ul>
+        </section>
+    </div>
 </div>
+
+<script>
+    async function fill(id, url, map) {
+        try {
+            const res = await fetch(url, { credentials: 'same-origin' });
+            const data = await res.json();
+            document.getElementById(id).innerHTML = (data.items || []).map(map).join('');
+        } catch (e) {
+            document.getElementById(id).innerHTML = '<li class="text-red-600">Failed to load</li>';
+        }
+    }
+    fill('competitions', '/api/admin/competitions', (it) => `<li>#${it.id} – ${it.name} · teams: ${it.teams} · containers: ${it.containers}</li>`);
+    fill('teams', '/api/admin/teams', (it) => `<li>#${it.id} – ${it.name} · score: ${it.score}</li>`);
+    fill('containers', '/api/admin/containers', (it) => `<li>#${it.id} – ${it.ipAddress} · ${it.status}</li>`);
+</script>

@@ -8,7 +8,16 @@
 </head>
 
 <body class="bg-gray-100 min-h-screen flex items-center justify-center">
+    {{if .Error}}
+    <div class="w-full max-w-2xl p-6 bg-white rounded-xl shadow-md">
+        <h1 class="text-3xl font-bold mb-4">A Critical Error Occurred:</h1>
+        <p class="bg-red-100 text-red-700 p-2 rounded mb-4">
+            {{.Error}}
+        </p>
+    </div>
+    {{else}}
     {{embed}}
+    {{end}}
 </body>
 
 </html>
