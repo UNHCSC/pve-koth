@@ -1,25 +1,83 @@
-<div class="w-full max-w-5xl p-6 bg-white rounded-xl shadow-md">
-    <div class="flex items-center justify-between">
+<div class="w-full max-w-6xl p-6 bg-white rounded-xl shadow-md">
+    <div class="flex items-center justify-between gap-4">
+        1
         <h1 class="text-2xl font-bold">Admin</h1>
-        <a href="/dashboard" class="text-blue-600 hover:underline">Back to dashboard</a>
+        <a href="/dashboard" class="text-blue-600 hover:underline">Back to
+            dashboard</a>
     </div>
-
+    <!-- Create Competition -->
+    <section class="mt-6 p-4 border rounded-lg space-y-4">
+        <h2 class="font-semibold text-lg">Create Competition</h2>
+        <form id="create-comp" class="grid md:grid-cols-2 gap-4">
+            <div>
+                <label class="block text-sm font-medium">Name</label>
+                <input name="name" class="mt-1 block w-full border-gray-300 rounded-md
+shadow-sm" required />
+            </div>
+            <div>
+                <label class="block text-sm font-medium">Private</label>
+                <select name="isPrivate" class="mt-1 block w-full border-gray-300
+rounded-md shadow-sm">
+                    <option value="false">No</option>
+                    <option value="true">Yes</option>
+                </select>
+            </div>
+            <div class="md:col-span-2">
+                <label class="block text-sm font-medium">Allowed LDAP Groups
+                    (comma‑sep)</label>
+                <input name="groups" placeholder="cn=admins,cn=accounts,dc=cyber,dc=lab"
+                    class="mt-1 block w-full border-gray-300 rounded-md shadow-sm" />
+            </div>
+            <details class="md:col-span-2 p-3 bg-gray-50 rounded border">
+                <summary class="cursor-pointer font-medium">Container Restrictions</ summary>
+                    <div class="grid md:grid-cols-3 gap-3 mt-3">
+                        <input name="hostnamePrefix" placeholder="host-"
+                            class="bordergray-300 rounded-md shadow-sm p-2" />
+                        <input name="template" placeholder="debian-12" class="border-gray-300
+rounded-md shadow-sm p-2" />
+                        <input name="storagePool" placeholder="local-lvm"
+                            class="bordergray-300 rounded-md shadow-sm p-2" />
+                        <input name="gatewayIPv4" placeholder="10.0.0.1"
+                            class="bordergray-300 rounded-md shadow-sm p-2" />
+                        <input name="nameserver" placeholder="10.0.0.2"
+                            class="border-gray-300 rounded-md shadow-sm p-2" />
+                        <input name="searchDomain" placeholder="cyber.lab"
+                            class="bordergray-300 rounded-md shadow-sm p-2" />
+                        <input name="storageGB" type="number" value="10" min="1" 2
+                            class="border-gray-300 rounded-md shadow-sm p-2" />
+                        <input name="memoryMB" type="number" value="512" min="64"
+                            class="border-gray-300 rounded-md shadow-sm p-2" />
+                        <input name="cores" type="number" value="1" min="1"
+                            class="bordergray-300 rounded-md shadow-sm p-2" />
+                        <input name="individualCIDR" type="number" value="0" min="0" max="30"
+                            class="border-gray-300 rounded-md shadow-sm p-2" />
+                    </div>
+            </details>
+            <div class="md:col-span-2 flex gap-2">
+                <button class="bg-blue-600 text-white py-2 px-4 rounded-md hover:bgblue-700"
+                    type="submit">Create</button>
+                <button id="cancel-create" class="hidden bg-gray-600 text-white py-2
+px-4 rounded-md hover:bg-gray-700" type="button">Cancel</button>
+            </div>
+        </form>
+        <!-- Live log output (SSE) -->
+        <pre id="create-log" class="hidden mt-4 p-3 bg-black text-green-200 rounded
+h-48 overflow-auto"></pre>
+    </section>
+    <!-- Lists -->
     <div class="mt-6 grid grid-cols-1 md:grid-cols-3 gap-4">
         <section class="p-4 border rounded-lg">
             <h2 class="font-semibold mb-2">Competitions</h2>
             <ul id="competitions" class="space-y-2 text-sm text-gray-700"></ul>
         </section>
-
         <section class="p-4 border rounded-lg">
             <h2 class="font-semibold mb-2">Teams</h2>
             <ul id="teams" class="space-y-2 text-sm text-gray-700"></ul>
         </section>
-
         <section class="p-4 border rounded-lg">
             <h2 class="font-semibold mb-2">Containers</h2>
             <ul id="containers" class="space-y-2 text-sm text-gray-700"></ul>
         </section>
     </div>
 </div>
-
-<script src="./static/admin.js" type="module" defer></script>
+<script src="/static/admin.js" type="module" defer></script>
