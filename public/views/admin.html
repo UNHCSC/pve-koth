@@ -22,17 +22,4 @@
     </div>
 </div>
 
-<script>
-    async function fill(id, url, map) {
-        try {
-            const res = await fetch(url, { credentials: 'same-origin' });
-            const data = await res.json();
-            document.getElementById(id).innerHTML = (data.items || []).map(map).join('');
-        } catch (e) {
-            document.getElementById(id).innerHTML = '<li class="text-red-600">Failed to load</li>';
-        }
-    }
-    fill('competitions', '/api/admin/competitions', (it) => `<li>#${it.id} – ${it.name} · teams: ${it.teams} · containers: ${it.containers}</li>`);
-    fill('teams', '/api/admin/teams', (it) => `<li>#${it.id} – ${it.name} · score: ${it.score}</li>`);
-    fill('containers', '/api/admin/containers', (it) => `<li>#${it.id} – ${it.ipAddress} · ${it.status}</li>`);
-</script>
+<script src="./static/admin.js" type="module" defer></script>

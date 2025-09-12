@@ -31,7 +31,7 @@ func mustBeLoggedIn(c *fiber.Ctx) error {
 func mustBeAdmin(c *fiber.Ctx) error {
 	var user *auth.AuthUser = auth.IsAuthenticated(c, jwtSigningKey)
 
-	if user == nil || user.Permissions() >= auth.AuthPermsAdministrator {
+	if user == nil || user.Permissions() < auth.AuthPermsAdministrator {
 		return c.Redirect("/unauthorized")
 	}
 

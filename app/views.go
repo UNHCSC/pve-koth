@@ -20,17 +20,22 @@ func showDashboard(c *fiber.Ctx) (err error) {
 		displayName string
 	)
 
-	if displayName, err = user.LDAPConn.DisplayName(); err != nil {
-		return c.Render("dashboard", fiber.Map{
-			"Title": "Dashboard",
-			"User":  user.LDAPConn.Username,
-			"Error": err.Error(),
-		}, "layout")
+	if user != nil {
+		if displayName, err = user.LDAPConn.DisplayName(); err != nil {
+			return c.Render("dashboard", fiber.Map{
+				"Title": "Dashboard",
+				"User":  user.LDAPConn.Username,
+				"Error": err.Error(),
+			}, "layout")
+		}
+	} else {
+		displayName = "Guest"
 	}
 
 	return c.Render("dashboard", fiber.Map{
-		"Title": "Dashboard",
-		"User":  displayName,
+		"Title":    "Dashboard",
+		"User":     displayName,
+		"LoggedIn": user != nil,
 	}, "layout")
 }
 

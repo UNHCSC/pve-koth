@@ -1,7 +1,6 @@
 package app
 
 import (
-	"github.com/UNHCSC/pve-koth/auth"
 	"github.com/UNHCSC/pve-koth/config"
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/template/html/v2"
@@ -15,16 +14,18 @@ func StartApp() error {
 	// Pages
 	app.Static("/static", "./public/static")
 	app.Get("/", func(c *fiber.Ctx) error {
-		if auth.IsAuthenticated(c, jwtSigningKey) != nil {
-			return c.Redirect("/dashboard")
-		}
+		// if auth.IsAuthenticated(c, jwtSigningKey) != nil {
+		// 	return c.Redirect("/dashboard")
+		// }
 
-		return c.Redirect("/login")
+		// return c.Redirect("/login")
+
+		return c.Redirect("/dashboard")
 	})
 
 	app.Get("/login", showLogin)
 	app.Get("/logout", showLogout)
-	app.Get("/dashboard", mustBeLoggedIn, showDashboard)
+	app.Get("/dashboard", showDashboard)
 	app.Get("/admin", mustBeLoggedIn, mustBeAdmin, showAdminDashboard)
 	app.Get("/unauthorized", mustBeLoggedIn, showUnauthorized)
 
