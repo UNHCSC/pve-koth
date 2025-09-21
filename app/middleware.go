@@ -1,6 +1,7 @@
 package app
 
 import (
+	"maps"
 	"crypto/rand"
 
 	"github.com/UNHCSC/pve-koth/auth"
@@ -32,8 +33,20 @@ func mustBeAdmin(c *fiber.Ctx) error {
 	var user *auth.AuthUser = auth.IsAuthenticated(c, jwtSigningKey)
 
 	if user == nil || user.Permissions() < auth.AuthPermsAdministrator {
-		return c.Redirect("/unauthorized")
+		c.Locals("Error", "You do not have permission to access that page.")
 	}
 
 	return c.Next()
+}
+
+func bindWithLocals(c *fiber.Ctx, binds fiber.Map) (out fiber.Map) {
+	out = fiber.Map{}
+
+	if errMsg := c.Locals("Error"); errMsg != nil {
+		out["Error"] = errMsg
+	}
+
+	maps.Copy(out, binds)
+
+	return
 }

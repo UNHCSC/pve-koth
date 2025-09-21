@@ -27,7 +27,6 @@ func StartApp() error {
 	app.Get("/logout", showLogout)
 	app.Get("/dashboard", showDashboard)
 	app.Get("/admin", mustBeLoggedIn, mustBeAdmin, showAdminDashboard)
-	app.Get("/unauthorized", mustBeLoggedIn, showUnauthorized)
 
 	// API
 	app.Post("/api/auth/login", apiLogin)

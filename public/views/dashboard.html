@@ -1,6 +1,24 @@
-<div class="w-full max-w-4xl p-6 bg-white rounded-xl shadow-md">
-    <h1 class="text-3xl font-bold mb-4">Competitions</h1>
-    <div id="empty" class="hidden text-gray-600">No competitions yet.</div>
-    <ul id="comps" class="space-y-2"></ul>
+<div class="p-6 md:p-8 rounded-2xl card shadow-xl">
+    <div class="flex items-center justify-between">
+        <h1 class="text-3xl font-bold">Competitions</h1>
+        <a href="/admin" class="text-sm text-blue-600 hover:underline">Admin</a>
+    </div>
+
+    <div id="empty" class="hidden text-gray-600 mt-2">No competitions yet.</div>
+
+    <ul id="comps" class="mt-4 space-y-3">
+        <!-- JS populates -->
+        <!-- Example style for items your JS adds:
+    <li class="p-4 rounded-xl border border-gray-200 hover:border-blue-300 transition">
+      <div class="flex items-center justify-between">
+        <div>
+          <div class="font-semibold">Competition Name</div>
+          <div class="text-xs text-gray-500">Details...</div>
+        </div>
+        <a href="/competition/123" class="text-blue-600 hover:underline text-sm">Open</a>
+      </div>
+    </li>
+    -->
+    </ul>
 </div>
 <script src="/static/dashboard.js" type="module" defer></script>
