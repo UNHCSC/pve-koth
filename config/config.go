@@ -33,6 +33,7 @@ type Configuration struct {
 
 	Proxmox struct {
 		Host    string `env:"PROXMOX_HOST,required=true"`
+		Port    string `env:"PROXMOX_PORT,required=true"`
 		TokenID string `env:"PROXMOX_API_TOKEN_ID,required=true"`
 		Secret  string `env:"PROXMOX_API_TOKEN_SECRET,required=true"`
 	}

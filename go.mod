@@ -16,12 +16,19 @@ require (
 require (
 	github.com/Azure/go-ntlmssp v0.0.0-20221128193559-754e69321358 // indirect
 	github.com/andybalholm/brotli v1.2.0 // indirect
+	github.com/buger/goterm v1.0.4 // indirect
+	github.com/diskfs/go-diskfs v1.5.0 // indirect
+	github.com/djherbis/times v1.6.0 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/go-asn1-ber/asn1-ber v1.5.8-0.20250403174932-29230038a667 // indirect
 	github.com/gofiber/template v1.8.3 // indirect
 	github.com/gofiber/utils v1.1.0 // indirect
 	github.com/google/uuid v1.6.0 // indirect
+	github.com/gorilla/websocket v1.4.2 // indirect
+	github.com/jinzhu/copier v0.3.4 // indirect
 	github.com/klauspost/compress v1.18.0 // indirect
+	github.com/luthermonson/go-proxmox v0.2.3 // indirect
+	github.com/magefile/mage v1.14.0 // indirect
 	github.com/mattn/go-colorable v0.1.14 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/mattn/go-runewidth v0.0.16 // indirect
