@@ -63,6 +63,53 @@ func (api *ProxmoxAPI) DeleteContainer(ct *goProxmox.Container) (err error) {
 	return
 }
 
+func (api *ProxmoxAPI) CreateTemplate(ct *goProxmox.Container) (err error) {
+	err = ct.Template(api.bg)
+	return
+}
+
+func (api *ProxmoxAPI) CloneTemplate(ct *goProxmox.Container, hostname string) (newCT *goProxmox.Container, err error) {
+	var (
+		newID int
+		task  *goProxmox.Task
+	)
+
+	if newID, task, err = ct.Clone(api.bg, &goProxmox.ContainerCloneOptions{
+		Full:     1,
+		Hostname: hostname,
+	}); err != nil {
+		err = fmt.Errorf("failed to clone container: %w", err)
+		return
+	} else if err = task.Wait(api.bg, time.Second, time.Minute*10); err != nil {
+		err = fmt.Errorf("failed to wait for container clone task: %w", err)
+		return
+	}
+
+	if newCT, err = api.Container(newID); err != nil {
+		err = fmt.Errorf("failed to get new container after clone: %w", err)
+		return
+	}
+
+	return
+}
+
+func (api *ProxmoxAPI) ChangeContainerNetworking(ct *goProxmox.Container, gatewayIPv4, IPv4Address string, CIDRBlock int) (err error) {
+	var task *goProxmox.Task
+
+	if task, err = ct.Config(api.bg, goProxmox.ContainerOption{
+		Name:  "net0",
+		Value: fmt.Sprintf("name=eth0,bridge=vmbr0,firewall=1,gw=%s,ip=%s/%d", gatewayIPv4, IPv4Address, CIDRBlock),
+	}); err != nil {
+		err = fmt.Errorf("failed to change container networking: %w", err)
+	} else if task != nil {
+		if err = task.Wait(api.bg, time.Second, time.Minute*3); err != nil {
+			err = fmt.Errorf("failed to wait for container config task: %w", err)
+		}
+	}
+
+	return
+}
+
 func (api *ProxmoxAPI) GetContainers(ids []int) (containers []*goProxmox.Container, err error) {
 	containers = make([]*goProxmox.Container, 0, len(ids))
 

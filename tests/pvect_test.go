@@ -98,8 +98,14 @@ func helperSpinUpFileServer() {
 }
 
 // This test should be run without a timeout as this can take a while
-// go test -v -run ^TestCreateAndSetUpContainer$ github.com/UNHCSC/pve-koth/tests
+// go test -timeout=9999s -v -run ^TestCreateAndSetUpContainer$ github.com/UNHCSC/pve-koth/tests
 func TestCreateAndSetUpContainer(t *testing.T) {
+	// Skip if not run with long timeout
+	if testing.Short() {
+		t.Skip("skipping test in short mode.")
+		return
+	}
+
 	const CT_IP = "10.255.255.89"
 	var (
 		err                            error
@@ -251,5 +257,116 @@ func TestCreateAndSetUpContainer(t *testing.T) {
 		return
 	} else {
 		t.Logf("Grafana scoring script exited with code %d\nOutput:\n%s\n", exitCode, commandOutput)
+	}
+}
+
+// This test should be run without a timeout as this can take a while
+// go test -timeout=9999s -v -run ^TestCTTemplateClone$ github.com/UNHCSC/pve-koth/tests
+func TestCTTemplateClone(t *testing.T) {
+	var err error
+
+	if err = config.InitEnv("../.env"); err != nil {
+		t.Fatalf("failed to initialize environment: %v\n", err)
+		return
+	}
+
+	var api *proxmoxAPI.ProxmoxAPI
+	if api, err = proxmoxAPI.InitProxmox(); err != nil {
+		t.Fatalf("failed to initialize Proxmox API: %v\n", err)
+		return
+	}
+
+	if len(api.Nodes) == 0 {
+		t.Fatalf("no online Proxmox nodes found")
+		return
+	}
+
+	var node = api.Nodes[0]
+
+	var conf = &proxmoxAPI.ContainerCreateOptions{
+		TemplatePath:     "local:vztmpl/ubuntu-25.04-standard_25.04-1.1_amd64.tar.zst",
+		StoragePool:      "Storage",
+		Hostname:         "koth-test-ct",
+		RootPassword:     "password",
+		RootSSHPublicKey: "",
+		StorageSizeGB:    8,
+		MemoryMB:         512,
+		Cores:            1,
+		GatewayIPv4:      "10.0.0.1",
+		IPv4Address:      "10.224.0.2",
+		CIDRBlock:        8,
+		NameServer:       "10.0.0.2",
+		SearchDomain:     "cyber.lab",
+	}
+
+	var ct *proxmox.Container
+	var ctID int
+
+	if ct, ctID, err = api.CreateContainer(node, conf); err != nil {
+		t.Fatalf("failed to create container: %v\n", err)
+		return
+	}
+
+	t.Logf("created container with ID %d\n", ctID)
+
+	if err = api.StartContainer(ct); err != nil {
+		t.Errorf("failed to start container: %v\n", err)
+	} else {
+		t.Logf("started container with ID %d\n", ctID)
+	}
+
+	if err = api.StopContainer(ct); err != nil {
+		t.Errorf("failed to stop container: %v\n", err)
+	} else {
+		t.Logf("stopped container with ID %d\n", ctID)
+	}
+
+	if err = api.CreateTemplate(ct); err != nil {
+		t.Errorf("failed to create template from container: %v\n", err)
+	} else {
+		t.Logf("created template from container with ID %d\n", ctID)
+	}
+
+	var newCT *proxmox.Container
+	if newCT, err = api.CloneTemplate(ct, "koth-test-clone"); err != nil {
+		t.Errorf("failed to clone template: %v\n", err)
+	} else {
+		t.Logf("cloned template from container with ID %d to new container with ID %d\n", ctID, newCT.VMID)
+	}
+
+	if err = api.ChangeContainerNetworking(newCT, "10.0.0.1", "10.224.0.3", 8); err != nil {
+		t.Errorf("failed to change networking of cloned container: %v\n", err)
+	} else {
+		t.Logf("changed networking of cloned container with ID %d\n", newCT.VMID)
+	}
+
+	if err = api.StartContainer(newCT); err != nil {
+		t.Errorf("failed to start cloned container: %v\n", err)
+	} else {
+		t.Logf("started cloned container with ID %d\n", newCT.VMID)
+	}
+
+	if err = sshcomm.WaitOnline("10.224.0.3"); err != nil {
+		t.Errorf("cloned container did not come online in time: %v\n", err)
+	} else {
+		t.Logf("cloned container with ID %d is online\n", newCT.VMID)
+	}
+
+	if err = api.StopContainer(newCT); err != nil {
+		t.Errorf("failed to stop cloned container: %v\n", err)
+	} else {
+		t.Logf("stopped cloned container with ID %d\n", newCT.VMID)
+	}
+
+	if err = api.DeleteContainer(newCT); err != nil {
+		t.Errorf("failed to delete cloned container: %v\n", err)
+	} else {
+		t.Logf("deleted cloned container with ID %d\n", newCT.VMID)
+	}
+
+	if err = api.DeleteContainer(ct); err != nil {
+		t.Errorf("failed to delete original container: %v\n", err)
+	} else {
+		t.Logf("deleted original container with ID %d\n", ctID)
 	}
 }
