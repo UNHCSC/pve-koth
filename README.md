@@ -133,12 +133,264 @@ As an explanation of the fields:
 - `setupPublicFolder`: The path to the folder containing public files to be served to the containers when setup scripts are running.
 - `writeupFilePath`: The path to the competition writeup file (PDF or Markdown) that will be publicly available for competition members to view.
 
+## Scoring
+
+Scoring live containers that are constantly being changed by attackers and defenders is a difficult task. The goal of the scoring system is to be as fair and accurate as possible, while also being easy to understand and implement for competition organizers.
+
+The scoring system is based on the concept of "checks". Each container can have multiple checks defined in the `scoringSchema` array in the `config.json` file. Each check has a unique ID, a name, and points for passing or failing the check.
+
+> Note that scoring scripts are executed as the `root` user in the container.
+
+> Note that both pass and fail points are *added* to the team's score. Usually, fail points should be negative values to deduct points for failing a check.
+
+### Scoring Script Output
+
+Scoring scripts' exit status and output DO matter. The exit status should be `0` for success and non-zero for failure. The output of the script on a success should be **only** a JSON object with the following structure:
+
+```json
+{
+    "score": 123,
+    "checks": {
+        "ping": true,
+        "nginx": false,
+        "content": true
+    }
+}
+```
+
+- `score`: The total score for the container, which is the sum of all pass and fail points for each check.
+- `checks`: An object where each key is the ID of a check defined in the `scoringSchema` array in the `config.json` file, and the value is a boolean indicating whether the check passed or failed for display on the scoreboard.
+
+Yes, it can be annoying to construct JSON output in bash scripts, but it makes the scoring system much more robust and easier to understand, as well as allowing for efficient collection and aggregation of multiple check scripts on a container in a scoring loop.
+
+If a scoring script fails (non-zero exit status) or does not output valid JSON, the scoring engine will assume that all checks failed and award the fail points for each check.
+
+> Note that a script "failing" means that the execution of your commands in the script has just failed. If a check fails as "incorrect" or "false", that is not a script failure, but rather a check failure, and the script should still exit with a status of `0` and output the JSON object with the check result as `false`.
+
 ## Scripting
+
+### Script Execution
+
+Scripts are executed in the order they are listed in the `setupScript` and `scoringScript` arrays in the `config.json` file. Each script will be served to the container via a secure HTTP endpoint, and executed in the form defined by these functions:
+
+```go
+func SetEnvs(envs map[string]any) (result string) {
+	for k, v := range envs {
+		result += fmt.Sprintf("%s=\"%v\" ", k, v)
+	}
+
+	if result != "" {
+		result = result[:len(result)-1]
+	}
+
+	return
+}
+
+func LoadAndRunScript(scriptURL, accessToken string, envs map[string]any) (fullCommandlet string) {
+	fullCommandlet = fmt.Sprintf("wget --header='Cookie: Authorization=%s' -qO- '%s' | %s bash -s --", accessToken, scriptURL, SetEnvs(envs))
+	return
+}
+```
+
+To summarize, the script will be downloaded using `wget` with an authorization header containing an access token. The script will then be executed with `bash`, and any environment variables defined in the `envs` map will be set before execution. The script is never stored on the container's filesystem.
+
+### Environment Variables
+
+The following environment variables will be set for each script execution:
+
+- `KOTH_COMP_ID`: The competition ID from `config.json`.
+- `KOTH_ACCESS_TOKEN`: The unique access token that is valid through the execution of the script which allows you to make requests to the web server for files in the public folder.
+- `KOTH_PUBLIC_FOLDER`: The full HTTP path for the public folder for this competition.
+- `KOTH_TEAM_ID`: The team ID of the current team
+- `KOTH_HOSTNAME`: The hostname of the container.
+- `KOTH_IP`: The IPv4 address of the container.
+- `KOTH_CONTAINER_IPS_*`: A set of variables for every container in the team, where `*` is replaced with the configured name for that container. The value is the IPv4 address of that container.
+- `KOTH_CONTAINER_IPS`: A comma-separated list of all container IPv4 addresses for the team.
 
 ### Setup Scripts
 
+In our example above, we have two setup scripts: `scripts/setup_global.sh` and `scripts/setup_website.sh`.
+
+#### scripts/setup_global.sh
+
+```bash
+#!/bin/bash
+
+# Update and Upgrade
+apt-get update && apt-get upgrade -y
+
+# Install Packages
+apt-get install -y curl wget nano
+
+# Install Prometheus Node Exporter
+wget https://github.com/prometheus/node_exporter/releases/download/v1.9.1/node_exporter-1.9.1.linux-amd64.tar.gz -O /tmp/node_exporter.tar.gz
+tar -xzf /tmp/node_exporter.tar.gz -C /opt
+mv /opt/node_exporter-1.9.1.linux-amd64 /opt/node_exporter
+
+# Create systemd service for Node Exporter
+cat <<EOF > /etc/systemd/system/node_exporter.service
+[Unit]
+Description=Prometheus Node Exporter
+After=network.target
+
+[Service]
+User=root
+Type=simple
+WorkingDirectory=/opt/node_exporter
+ExecStart=bash -c "/opt/node_exporter/node_exporter"
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+systemctl daemon-reload
+systemctl enable --now node_exporter
+
+# Team's User
+useradd -m -s /bin/bash koth
+echo "koth:password" | chpasswd
+usermod -aG sudo koth
+echo "koth ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers
+
+# Other Users
+newUsers=("Sylvia Schneider" "Zack Chan" "Katy Rivas" "Amie Freeman" "Nikita Willis" "Demi-Leigh Rocha" "Nate Alexander" "Amelie Bright" "Angus Larson" "Laila Lyons" "Paul Fitzgerald" "Violet Nolan" "Jada Terry" "Armaan Huffman" "Moshe Thornton" "Lorcan Pham" "Tomas O'Quinn" "Kajus Miranda" "Millie Bridges" "Ben Allen" "Vivian Cantu" "Lyndon Massey")
+
+for user in "${newUsers[@]}"; do
+    username=$(echo "$user" | tr '[:upper:]' '[:lower:]' | tr ' ' '.')
+    if [[ ! " ${USERS[*]} " =~ " ${username} " ]]; then
+        USERS+=("$username")
+        useradd -m -s /bin/bash "$username"
+        chfn -f "$user" "$username"
+        echo "$username:password" | chpasswd
+        echo "$username ALL=(ALL) NOPASSWD: ALL" >>/etc/sudoers
+    fi
+done
+```
+
+#### scripts/setup_website.sh
+
+```bash
+#!/bin/bash
+
+# Install specific packages
+apt-get install -y nginx
+
+# Get the content of the website
+wget $KOTH_PUBLIC_FOLDER/website.tar.gz -O /tmp/website.tar.gz
+mkdir -p /tmp/website
+tar -xzf /tmp/website.tar.gz -C /tmp/website
+
+mv /tmp/website/* /var/www/html/
+
+# Set up NGINX
+cat <<EOF > /etc/nginx/sites-available/placebo-banking
+server {
+    listen 80;
+    server_name _;
+
+    root /var/www/html;
+    index index.html;
+
+    location / {
+        try_files \$uri \$uri/ =404;
+    }
+
+    location /api/ {
+        proxy_pass http://$KOTH_CONTAINER_IPS_api:5000/;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+    }
+}
+EOF
+
+ln -sf /etc/nginx/sites-available/placebo-banking /etc/nginx/sites-enabled/
+rm -f /etc/nginx/sites-enabled/default
+nginx -t && systemctl reload nginx
+```
+
+In the website setup script, we reference another container in the team using the `KOTH_CONTAINER_IPS_api` environment variable, which is automatically set to the IP address of the container named `api`. We didn't define an `api` container in our example `config.json`, but it is included as an example to show that we can reference other containers in the team.
+
 ### Scoring Scripts
+
+In our example above, we have two scoring scripts: `scripts/score_global.sh` and `scripts/score_website.sh`.
+
+#### scripts/score_global.sh
+
+```bash
+#!/bin/bash
+
+SCORE=0
+CHECK_icmp=false
+CHECK_exporter=false
+
+# Container Can be Pinged? +1, -0
+if ping -c 1 -W 1 "$KOTH_IP" &> /dev/null; then
+    CHECK_icmp=true
+    SCORE=$((SCORE + 1))
+fi
+
+# Prometheus Exporter Running? +1, -1
+if curl -s --max-time 2 "http://$KOTH_IP:9100/metrics" | grep -q "Processor"; then
+    CHECK_exporter=true
+    SCORE=$((SCORE + 1))
+else
+    SCORE=$((SCORE - 1))
+fi
+
+# Now give the data out as JSON
+echo "{
+    \"score\": $SCORE,
+    \"checks\": {
+        \"icmp\": $CHECK_icmp,
+        \"exporter\": $CHECK_exporter
+    }
+}"
+```
+
+#### scripts/score_website.sh
+
+```bash
+#!/bin/bash
+
+SCORE=0
+CHECK_nginx=false
+CHECK_content=false
+
+# Nginx service running? +3, -1
+if systemctl is-active --quiet nginx; then
+    CHECK_nginx=true
+    SCORE=$((SCORE + 3))
+else
+    SCORE=$((SCORE - 1))
+fi
+
+# Correct webpage content? +2, -2
+if curl -s --max-time 2 "http://$KOTH_IP" | grep -q "Placebo Banking"; then
+    CHECK_content=true
+    SCORE=$((SCORE + 2))
+else
+    SCORE=$((SCORE - 2))
+fi
+
+# Now give the data out as JSON
+echo "{
+    \"score\": $SCORE,
+    \"checks\": {
+        \"nginx\": $CHECK_nginx,
+        \"content\": $CHECK_content
+    }
+}"
+```
+
+> Note that you can still use environment variables in scoring scripts, just like setup scripts!
 
 ### Public Folder
 
+The public folder is a directory in the competition ZIP file that contains files that will be made available to the containers during setup script execution. The files in this folder can be accessed via HTTP using the `KOTH_PUBLIC_FOLDER` environment variable. Like scripts, files in the public folder can only be accessed with a valid access token.
+
+The public folder in the ZIP file must be less than 100MB in size by default. This is configurable in the King of the Hill environment variables file.
+
 ## Networking
+
+TODO
