@@ -1,6 +1,12 @@
 package app
 
 import (
+	"archive/zip"
+	"fmt"
+	"mime/multipart"
+	"os"
+	"path/filepath"
+
 	"github.com/UNHCSC/pve-koth/auth"
 	"github.com/UNHCSC/pve-koth/db"
 	"github.com/gofiber/fiber/v2"
@@ -54,4 +60,31 @@ func apiGetCompetitions(c *fiber.Ctx) (err error) {
 	return c.JSON(fiber.Map{
 		"competitions": competitions,
 	})
+}
+
+func apiCreateCompetition(c *fiber.Ctx) (err error) {
+	var (
+		fHeader       *multipart.FileHeader
+		zipReadCloser *zip.ReadCloser
+	)
+
+	if fHeader, err = c.FormFile("file"); err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, "file is required")
+	}
+
+	var tmpPath = filepath.Join(os.TempDir(), fmt.Sprintf("pve-koth-upload-%s", fHeader.Filename))
+
+	if err = c.SaveFile(fHeader, tmpPath); err != nil {
+		return fiber.NewError(fiber.StatusInternalServerError, "failed to save upload")
+	}
+
+	defer os.Remove(tmpPath)
+
+	if zipReadCloser, err = zip.OpenReader(tmpPath); err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, "file is not a valid zip")
+	}
+
+	defer zipReadCloser.Close()
+
+	return
 }
