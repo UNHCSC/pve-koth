@@ -11,10 +11,11 @@ import (
 )
 
 type ProxmoxAPI struct {
-	client  *goProxmox.Client
-	bg      context.Context
-	Nodes   []*goProxmox.Node
-	Cluster *goProxmox.Cluster
+	client      *goProxmox.Client
+	bg          context.Context
+	Nodes       []*goProxmox.Node
+	Cluster     *goProxmox.Cluster
+	nodeRotator int
 }
 
 func InitProxmox() (api *ProxmoxAPI, err error) {
@@ -58,4 +59,13 @@ func InitProxmox() (api *ProxmoxAPI, err error) {
 	}
 
 	return
+}
+
+func (api *ProxmoxAPI) NextNode() *goProxmox.Node {
+	if len(api.Nodes) == 0 {
+		return nil
+	}
+
+	api.nodeRotator = (api.nodeRotator + 1) % len(api.Nodes)
+	return api.Nodes[api.nodeRotator]
 }
