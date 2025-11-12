@@ -88,3 +88,16 @@ func apiCreateCompetition(c *fiber.Ctx) (err error) {
 
 	return
 }
+
+func apiGetPublicFile(c *fiber.Ctx) (err error) {
+	// Just return JSON of the param and path
+	var (
+		competitionID = c.Params("competitionID")
+		filepath      = c.Params("*")
+	)
+
+	return c.JSON(fiber.Map{
+		"competitionID": competitionID,
+		"filepath":      filepath,
+	})
+}

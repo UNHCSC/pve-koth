@@ -34,8 +34,8 @@ func TestCTLifecycle(t *testing.T) {
 	var node = api.Nodes[0]
 
 	var conf = &proxmoxAPI.ContainerCreateOptions{
-		TemplatePath:     "local:vztmpl/ubuntu-25.04-standard_25.04-1.1_amd64.tar.zst",
-		StoragePool:      "Storage",
+		TemplatePath:     "isos-ct_templates:vztmpl/ubuntu-25.04-standard_25.04-1.1_amd64.tar.zst",
+		StoragePool:      "laas",
 		Hostname:         "koth-test-ct",
 		RootPassword:     "password",
 		RootSSHPublicKey: "",
@@ -161,8 +161,8 @@ func TestCreateAndSetUpContainer(t *testing.T) {
 
 	t.Log("Creating container...")
 	if ct, _, err = api.CreateContainer(api.NextNode(), &proxmoxAPI.ContainerCreateOptions{
-		TemplatePath:     "local:vztmpl/ubuntu-25.04-standard_25.04-1.1_amd64.tar.zst",
-		StoragePool:      "Storage",
+		TemplatePath:     "isos-ct_templates:vztmpl/ubuntu-25.04-standard_25.04-1.1_amd64.tar.zst",
+		StoragePool:      "laas",
 		Hostname:         "koth-test-ct",
 		RootPassword:     "password",
 		RootSSHPublicKey: pubKey,
@@ -284,8 +284,8 @@ func TestCTTemplateClone(t *testing.T) {
 	var node = api.Nodes[0]
 
 	var conf = &proxmoxAPI.ContainerCreateOptions{
-		TemplatePath:     "local:vztmpl/ubuntu-25.04-standard_25.04-1.1_amd64.tar.zst",
-		StoragePool:      "Storage",
+		TemplatePath:     "isos-ct_templates:vztmpl/ubuntu-25.04-standard_25.04-1.1_amd64.tar.zst",
+		StoragePool:      "laas",
 		Hostname:         "koth-test-ct",
 		RootPassword:     "password",
 		RootSSHPublicKey: "",

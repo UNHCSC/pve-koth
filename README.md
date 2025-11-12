@@ -45,6 +45,7 @@ Here's a minimal example of a `config.json` file to create a competition with on
     "competitionName": "Example Competition",
     "competitionDescription": "This is an example competition.",
     "competitionHost": "Example Host",
+    "numTeams": 4,
     "privacy": {
         "public": true,
         "LDAPAllowedGroupsFilter": ""

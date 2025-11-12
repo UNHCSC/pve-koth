@@ -32,6 +32,8 @@ func StartApp() error {
 	app.Post("/api/auth/login", apiLogin)
 	app.Post("/api/auth/logout", mustBeLoggedIn, apiLogout)
 
+	app.Get("/api/competitions/:competitionID/public/*", apiGetPublicFile)
+
 	if config.Config.WebServer.TlsDir != "" {
 		return app.ListenTLS(config.Config.WebServer.Address, config.Config.WebServer.TlsDir+"/fullchain.pem", config.Config.WebServer.TlsDir+"/privkey.pem")
 	}
