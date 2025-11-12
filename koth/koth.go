@@ -3,8 +3,10 @@ package koth
 import (
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
+	"github.com/UNHCSC/pve-koth/config"
 	"github.com/UNHCSC/pve-koth/db"
 	"github.com/UNHCSC/pve-koth/proxmoxAPI"
 	"github.com/UNHCSC/pve-koth/sshcomm"
@@ -30,12 +32,12 @@ func CreateNewComp(request *db.CreateCompetitionRequest) (comp *db.Competition, 
 	// 1. Create structs & Data Dir(s)
 	localLog.Status("Creating data directories...")
 	if err = os.MkdirAll(fmt.Sprintf("./data/%s/ssh", request.CompetitionID), 0755); err != nil {
-		localLog.Errorf("Failed to create SSH data directory: %s", err.Error())
+		localLog.Errorf("Failed to create SSH data directory: %v\n", err)
 		return
 	}
 
 	if err = os.MkdirAll(fmt.Sprintf("./data/%s/public", request.CompetitionID), 0755); err != nil {
-		localLog.Errorf("Failed to create public data directory: %s", err.Error())
+		localLog.Errorf("Failed to create public data directory: %v\n", err)
 		return
 	}
 
@@ -75,6 +77,32 @@ func CreateNewComp(request *db.CreateCompetitionRequest) (comp *db.Competition, 
 		}(),
 	}
 
+	if err = db.Competitions.Insert(comp); err != nil {
+		localLog.Errorf("Failed to create competition record: %v\n", err)
+		return
+	}
+
+	// 2. Write files to data dir
+	localLog.Status("Writing files to data directory...")
+
+	for _, file := range request.AttachedFiles {
+		localLog.Statusf("Writing file: %s (%d bytes)", file.SourceFilePath, len(file.FileContent))
+		if err = os.WriteFile(fmt.Sprintf("./data/%s/public/%s", request.CompetitionID, file.SourceFilePath), file.FileContent, 0644); err != nil {
+			localLog.Errorf("Failed to write file (%s): %v\n", file.SourceFilePath, err)
+			return
+		}
+	}
+
+	localLog.Status("Generating SSH keypair...")
+	var publicKey, privateKey string
+	if publicKey, privateKey, err = sshcomm.CreateSSHKeyPair(fmt.Sprintf("./data/%s/ssh", request.CompetitionID)); err != nil {
+		localLog.Errorf("Failed to generate SSH keypair: %v\n", err)
+		return
+	}
+
+	// 3. Create templates, templatize them
+	localLog.Status("Creating container templates...")
+
 	for i := range request.NumTeams {
 		var team *db.Team = &db.Team{
 			ID:           0,
@@ -86,102 +114,76 @@ func CreateNewComp(request *db.CreateCompetitionRequest) (comp *db.Competition, 
 		}
 
 		if err = db.Teams.Insert(team); err != nil {
-			localLog.Errorf("Failed to create team record: %s", err.Error())
+			localLog.Errorf("Failed to create team record: %v\n", err)
 			return
 		}
 
 		comp.TeamIDs = append(comp.TeamIDs, team.ID)
-	}
 
-	if err = db.Competitions.Insert(comp); err != nil {
-		localLog.Errorf("Failed to create competition record: %s", err.Error())
-		return
-	}
+		for _, templateCfg := range request.TeamContainerConfigs {
+			localLog.Statusf("Creating template for container: %s...\n", templateCfg.Name)
 
-	// 2. Write files to data dir
-	localLog.Status("Writing files to data directory...")
+			var (
+				ct              *proxmox.Container
+				ctID            int
+				conn            *sshcomm.SSHConnection
+				containerConfig *proxmoxAPI.ContainerCreateOptions = &proxmoxAPI.ContainerCreateOptions{
+					TemplatePath:     request.ContainerSpecs.TemplatePath,
+					StoragePool:      request.ContainerSpecs.StoragePool,
+					Hostname:         fmt.Sprintf("%s-template-%s", comp.ContainerRestrictions.HostnamePrefix, templateCfg.Name),
+					RootPassword:     request.ContainerSpecs.RootPassword,
+					RootSSHPublicKey: publicKey,
+					StorageSizeGB:    request.ContainerSpecs.StorageSizeGB,
+					MemoryMB:         request.ContainerSpecs.MemoryMB,
+					Cores:            request.ContainerSpecs.Cores,
+					GatewayIPv4:      request.ContainerSpecs.GatewayIPv4,
+					IPv4Address:      fmt.Sprintf("10.0.%d.%d", 224, templateCfg.LastOctetValue),
+					CIDRBlock:        request.ContainerSpecs.CIDRBlock,
+					NameServer:       request.ContainerSpecs.NameServerIPv4,
+					SearchDomain:     request.ContainerSpecs.SearchDomain,
+				}
+			)
 
-	for _, file := range request.AttachedFiles {
-		localLog.Statusf("Writing file: %s (%d bytes)", file.SourceFilePath, len(file.FileContent))
-		if err = os.WriteFile(fmt.Sprintf("./data/%s/public/%s", request.CompetitionID, file.SourceFilePath), file.FileContent, 0644); err != nil {
-			localLog.Errorf("Failed to write file (%s): %s", file.SourceFilePath, err.Error())
-			return
-		}
-	}
-
-	localLog.Status("Generating SSH keypair...")
-	var publicKey, privateKey string
-	if publicKey, privateKey, err = sshcomm.CreateSSHKeyPair(fmt.Sprintf("./data/%s/ssh", request.CompetitionID)); err != nil {
-		localLog.Errorf("Failed to generate SSH keypair: %s", err.Error())
-		return
-	}
-
-	// 3. Create templates, templatize them
-	localLog.Status("Creating container templates...")
-
-	for _, templateCfg := range request.TeamContainerConfigs {
-		localLog.Statusf("Creating template for container: %s...", templateCfg.Name)
-
-		var (
-			ct              *proxmox.Container
-			ctID            int
-			conn            *sshcomm.SSHConnection
-			containerConfig *proxmoxAPI.ContainerCreateOptions = &proxmoxAPI.ContainerCreateOptions{
-				TemplatePath:     request.ContainerSpecs.TemplatePath,
-				StoragePool:      request.ContainerSpecs.StoragePool,
-				Hostname:         fmt.Sprintf("%s-template-%s", comp.ContainerRestrictions.HostnamePrefix, templateCfg.Name),
-				RootPassword:     request.ContainerSpecs.RootPassword,
-				RootSSHPublicKey: publicKey,
-				StorageSizeGB:    request.ContainerSpecs.StorageSizeGB,
-				MemoryMB:         request.ContainerSpecs.MemoryMB,
-				Cores:            request.ContainerSpecs.Cores,
-				GatewayIPv4:      request.ContainerSpecs.GatewayIPv4,
-				IPv4Address:      fmt.Sprintf("10.0.%d.%d", 224, templateCfg.LastOctetValue),
-				CIDRBlock:        request.ContainerSpecs.CIDRBlock,
-				NameServer:       request.ContainerSpecs.NameServerIPv4,
-				SearchDomain:     request.ContainerSpecs.SearchDomain,
+			if ct, ctID, err = api.CreateContainer(api.NextNode(), containerConfig); err != nil {
+				localLog.Errorf("Failed to create container: %v\n", err)
+				return
 			}
-		)
 
-		if ct, ctID, err = api.CreateContainer(api.NextNode(), containerConfig); err != nil {
-			localLog.Errorf("Failed to create container: %s", err.Error())
-			return
+			localLog.Statusf("Container %s created (CTID: %d). Beginning setup...\n", containerConfig.Hostname, ctID)
+
+			if err = api.StartContainer(ct); err != nil {
+				localLog.Errorf("Failed to start container (CTID: %d): %v\n", ctID, err)
+				return
+			}
+
+			if err = sshcomm.WaitOnline(containerConfig.IPv4Address); err != nil {
+				localLog.Errorf("Container (CTID: %d) failed to come online: %v", ctID, err)
+				return
+			}
+
+			localLog.Statusf("Container (CTID: %d) is online. Running setup script(s)...", ctID)
+			if conn, err = sshcomm.Connect("root", containerConfig.IPv4Address, 22, sshcomm.WithPrivateKey([]byte(privateKey))); err != nil {
+				localLog.Errorf("Failed to connect to container (CTID: %d) via SSH: %v\n", ctID, err)
+				return
+			}
+
+			defer conn.Close()
+
+			var envs = map[string]any{
+				"KOTH_COMP_ID":               request.CompetitionID,
+				"KOTH_ACCESS_TOKEN":          "test_token",
+				"KOTH_PUBLIC_FOLDER":         fmt.Sprintf("http://%s:%d/api/competitions/%s/public", sshcomm.MustLocalIP(), strings.Split(config.Config.WebServer.Address, ":")[1], request.CompetitionID),
+				"KOTH_TEAM_ID":               team.ID,
+				"KOTH_HOSTNAME":              containerConfig.Hostname,
+				"KOTH_IP":                    containerConfig.IPv4Address,
+				"KOTH_CONTAINER_IPS_grafana": containerConfig.IPv4Address,
+				"KOTH_CONTAINER_IPS":         containerConfig.IPv4Address,
+			}
 		}
-
-		localLog.Statusf("Container %s created (CTID: %d). Beginning setup...\n", containerConfig.Hostname, ctID)
-
-		if err = api.StartContainer(ct); err != nil {
-			localLog.Errorf("Failed to start container (CTID: %d): %s", ctID, err.Error())
-			return
-		}
-
-		if err = sshcomm.WaitOnline(containerConfig.IPv4Address); err != nil {
-			localLog.Errorf("Container (CTID: %d) failed to come online: %s", ctID, err.Error())
-			return
-		}
-
-		localLog.Statusf("Container (CTID: %d) is online. Running setup script(s)...", ctID)
-		if conn, err = sshcomm.Connect("root", containerConfig.IPv4Address, 22, sshcomm.WithPrivateKey([]byte(privateKey))); err != nil {
-			localLog.Errorf("Failed to connect to container (CTID: %d) via SSH: %s", ctID, err.Error())
-			return
-		}
-
-		defer conn.Close()
-
-		// var envs = map[string]any{
-		// 	"KOTH_COMP_ID":               "testcomp",
-		// 	"KOTH_ACCESS_TOKEN":          "test_token",
-		// 	"KOTH_PUBLIC_FOLDER":         fmt.Sprintf("http://%s:%d/", sshcomm.MustLocalIP(), 8080),
-		// 	"KOTH_TEAM_ID":               "team1",
-		// 	"KOTH_HOSTNAME":              "koth-test-ct",
-		// 	"KOTH_IP":                    containerConfig.IPv4Address,
-		// 	"KOTH_CONTAINER_IPS_grafana": containerConfig.IPv4Address,
-		// 	"KOTH_CONTAINER_IPS":         containerConfig.IPv4Address,
-		// }
 	}
 
 	// 4. Store in DB
 
-	localLog.Successf("Successfully created competition: %s", request.CompetitionName)
+	localLog.Successf("Successfully created competition: %s\n", request.CompetitionName)
 	return
 }
