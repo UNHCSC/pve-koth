@@ -32,10 +32,8 @@ func (api *ProxmoxAPI) Container(ctID int) (ct *goProxmox.Container, err error) 
 
 func (api *ProxmoxAPI) StartContainer(ct *goProxmox.Container) (err error) {
 	var task *goProxmox.Task
-	if task, err = ct.Start(api.bg); err != nil {
-		err = fmt.Errorf("failed to start container: %w", err)
-	} else if err = task.Wait(api.bg, time.Second, time.Minute*3); err != nil {
-		err = fmt.Errorf("failed to wait for container start task: %w", err)
+	if task, err = ct.Start(api.bg); err == nil {
+		err = task.Wait(api.bg, time.Second, time.Minute*3)
 	}
 
 	return
@@ -43,10 +41,8 @@ func (api *ProxmoxAPI) StartContainer(ct *goProxmox.Container) (err error) {
 
 func (api *ProxmoxAPI) StopContainer(ct *goProxmox.Container) (err error) {
 	var task *goProxmox.Task
-	if task, err = ct.Stop(api.bg); err != nil {
-		err = fmt.Errorf("failed to stop container: %w", err)
-	} else if err = task.Wait(api.bg, time.Second, time.Minute*3); err != nil {
-		err = fmt.Errorf("failed to wait for container stop task: %w", err)
+	if task, err = ct.Stop(api.bg); err == nil {
+		err = task.Wait(api.bg, time.Second, time.Minute*3)
 	}
 
 	return
@@ -54,10 +50,8 @@ func (api *ProxmoxAPI) StopContainer(ct *goProxmox.Container) (err error) {
 
 func (api *ProxmoxAPI) DeleteContainer(ct *goProxmox.Container) (err error) {
 	var task *goProxmox.Task
-	if task, err = ct.Delete(api.bg); err != nil {
-		err = fmt.Errorf("failed to delete container: %w", err)
-	} else if err = task.Wait(api.bg, time.Second, time.Minute*3); err != nil {
-		err = fmt.Errorf("failed to wait for container delete task: %w", err)
+	if task, err = ct.Delete(api.bg); err == nil {
+		err = task.Wait(api.bg, time.Second, time.Minute*3)
 	}
 
 	return
@@ -221,5 +215,27 @@ func (api *ProxmoxAPI) BulkDelete(ids []int) (err error) {
 	}
 
 	err = api.bulkJob(tasks, 5)
+	return
+}
+
+func (api *ProxmoxAPI) CTActionWithRetries(action func(ct *goProxmox.Container) error, ct *goProxmox.Container, numRetries int) (err error) {
+	for i := range numRetries + 1 {
+		if err = action(ct); err == nil {
+			if i > 0 {
+				fmt.Printf("Action on container %d succeeded after %d retries.\n", ct.VMID, i-1)
+			}
+
+			return
+		}
+
+		fmt.Printf("Action on container %d failed: %v. Retrying (%d/%d)...\n", ct.VMID, err, i+1, numRetries)
+		time.Sleep(time.Second * (time.Duration(i) + 1))
+	}
+
+	return
+}
+
+func (api *ProxmoxAPI) ListContainers(node *goProxmox.Node) (containers []*goProxmox.Container, err error) {
+	containers, err = node.Containers(api.bg)
 	return
 }

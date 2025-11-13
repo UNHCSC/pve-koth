@@ -83,3 +83,20 @@ func (conn *SSHConnection) Reset() (err error) {
 	conn.session, err = conn.client.NewSession()
 	return
 }
+
+func ConnectOnceReadyWithRetry(username, host string, port int, auth ssh.AuthMethod, retries int) (conn *SSHConnection, err error) {
+	if err = WaitOnline(host); err != nil {
+		return
+	}
+
+	for i := range retries {
+		err = nil
+		if conn, err = Connect(username, host, port, auth); err == nil {
+			return
+		}
+
+		time.Sleep((time.Duration(i) + 1) * time.Second)
+	}
+
+	return
+}

@@ -5,17 +5,29 @@ import (
 	"crypto/tls"
 	"fmt"
 	"net/http"
+	"sync"
 
 	"github.com/UNHCSC/pve-koth/config"
 	goProxmox "github.com/luthermonson/go-proxmox"
 )
 
 type ProxmoxAPI struct {
+	createLock  sync.Mutex
 	client      *goProxmox.Client
 	bg          context.Context
 	Nodes       []*goProxmox.Node
 	Cluster     *goProxmox.Cluster
 	nodeRotator int
+}
+
+type ProxmoxAPICreateResult struct {
+	Container *goProxmox.Container
+	CTID      int
+}
+
+type ProxmoxAPIBulkCreateResult struct {
+	Result *ProxmoxAPICreateResult
+	Error  error
 }
 
 func InitProxmox() (api *ProxmoxAPI, err error) {
