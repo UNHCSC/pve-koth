@@ -222,13 +222,13 @@ func (api *ProxmoxAPI) CTActionWithRetries(action func(ct *goProxmox.Container) 
 	for i := range numRetries + 1 {
 		if err = action(ct); err == nil {
 			if i > 0 {
-				fmt.Printf("Action on container %d succeeded after %d retries.\n", ct.VMID, i-1)
+				// fmt.Printf("Action on container %d succeeded after %d retries.\n", ct.VMID, i-1)
 			}
 
 			return
 		}
 
-		fmt.Printf("Action on container %d failed: %v. Retrying (%d/%d)...\n", ct.VMID, err, i+1, numRetries)
+		// fmt.Printf("Action on container %d failed: %v. Retrying (%d/%d)...\n", ct.VMID, err, i+1, numRetries)
 		time.Sleep(time.Second * (time.Duration(i) + 1))
 	}
 

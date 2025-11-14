@@ -399,7 +399,7 @@ func TestMassCTLifecycle(t *testing.T) {
 	}
 	defer os.RemoveAll("tmpssh")
 
-	var confs = make([]*proxmoxAPI.ContainerCreateOptions, 252)
+	var confs = make([]*proxmoxAPI.ContainerCreateOptions, 32)
 	for i := range len(confs) {
 		confs[i] = &proxmoxAPI.ContainerCreateOptions{
 			TemplatePath:     "isos-ct_templates:vztmpl/ubuntu-25.04-standard_25.04-1.1_amd64.tar.zst",

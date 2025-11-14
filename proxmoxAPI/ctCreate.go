@@ -128,7 +128,7 @@ func (api *ProxmoxAPI) BulkCreateContainersConcurrent(nodes []*goProxmox.Node, c
 					// It's a retry, sleep a bit and then retry with a new CTID
 					time.Sleep(time.Second * (time.Duration(i) + 1))
 
-					fmt.Printf("Retrying creation of container (attempt %d/%d)\n", i, numCreateRetries)
+					// fmt.Printf("Retrying creation of container (attempt %d/%d)\n", i, numCreateRetries)
 
 					var (
 						bumpID   int

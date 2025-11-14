@@ -3,14 +3,11 @@ package koth
 import (
 	"fmt"
 	"os"
-	"strings"
 	"time"
 
-	"github.com/UNHCSC/pve-koth/config"
 	"github.com/UNHCSC/pve-koth/db"
 	"github.com/UNHCSC/pve-koth/proxmoxAPI"
 	"github.com/UNHCSC/pve-koth/sshcomm"
-	"github.com/luthermonson/go-proxmox"
 	"github.com/z46-dev/go-logger"
 )
 
@@ -120,66 +117,89 @@ func CreateNewComp(request *db.CreateCompetitionRequest) (comp *db.Competition, 
 
 		comp.TeamIDs = append(comp.TeamIDs, team.ID)
 
-		for _, templateCfg := range request.TeamContainerConfigs {
-			localLog.Statusf("Creating template for container: %s...\n", templateCfg.Name)
+		var configs []*proxmoxAPI.ContainerCreateOptions
 
-			var (
-				ct              *proxmox.Container
-				ctID            int
-				conn            *sshcomm.SSHConnection
-				containerConfig *proxmoxAPI.ContainerCreateOptions = &proxmoxAPI.ContainerCreateOptions{
+		for _, templateCfg := range request.TeamContainerConfigs {
+			for i := range request.NumTeams {
+				// need way to track jobs with meta data.
+				configs = append(configs, &proxmoxAPI.ContainerCreateOptions{
 					TemplatePath:     request.ContainerSpecs.TemplatePath,
 					StoragePool:      request.ContainerSpecs.StoragePool,
-					Hostname:         fmt.Sprintf("%s-template-%s", comp.ContainerRestrictions.HostnamePrefix, templateCfg.Name),
+					Hostname:         fmt.Sprintf("%s-team-%d-%s", comp.ContainerRestrictions.HostnamePrefix, i+1, templateCfg.Name),
 					RootPassword:     request.ContainerSpecs.RootPassword,
 					RootSSHPublicKey: publicKey,
 					StorageSizeGB:    request.ContainerSpecs.StorageSizeGB,
 					MemoryMB:         request.ContainerSpecs.MemoryMB,
 					Cores:            request.ContainerSpecs.Cores,
 					GatewayIPv4:      request.ContainerSpecs.GatewayIPv4,
-					IPv4Address:      fmt.Sprintf("10.0.%d.%d", 224, templateCfg.LastOctetValue),
+					IPv4Address:      fmt.Sprintf("10.224.%d.%d", i+1, templateCfg.LastOctetValue),
 					CIDRBlock:        request.ContainerSpecs.CIDRBlock,
 					NameServer:       request.ContainerSpecs.NameServerIPv4,
 					SearchDomain:     request.ContainerSpecs.SearchDomain,
-				}
-			)
-
-			if ct, ctID, err = api.CreateContainer(api.NextNode(), containerConfig); err != nil {
-				localLog.Errorf("Failed to create container: %v\n", err)
-				return
-			}
-
-			localLog.Statusf("Container %s created (CTID: %d). Beginning setup...\n", containerConfig.Hostname, ctID)
-
-			if err = api.StartContainer(ct); err != nil {
-				localLog.Errorf("Failed to start container (CTID: %d): %v\n", ctID, err)
-				return
-			}
-
-			if err = sshcomm.WaitOnline(containerConfig.IPv4Address); err != nil {
-				localLog.Errorf("Container (CTID: %d) failed to come online: %v", ctID, err)
-				return
-			}
-
-			localLog.Statusf("Container (CTID: %d) is online. Running setup script(s)...", ctID)
-			if conn, err = sshcomm.Connect("root", containerConfig.IPv4Address, 22, sshcomm.WithPrivateKey([]byte(privateKey))); err != nil {
-				localLog.Errorf("Failed to connect to container (CTID: %d) via SSH: %v\n", ctID, err)
-				return
-			}
-
-			defer conn.Close()
-
-			var envs = map[string]any{
-				"KOTH_COMP_ID":               request.CompetitionID,
-				"KOTH_ACCESS_TOKEN":          "test_token",
-				"KOTH_PUBLIC_FOLDER":         fmt.Sprintf("http://%s:%d/api/competitions/%s/public", sshcomm.MustLocalIP(), strings.Split(config.Config.WebServer.Address, ":")[1], request.CompetitionID),
-				"KOTH_TEAM_ID":               team.ID,
-				"KOTH_HOSTNAME":              containerConfig.Hostname,
-				"KOTH_IP":                    containerConfig.IPv4Address,
-				"KOTH_CONTAINER_IPS_grafana": containerConfig.IPv4Address,
-				"KOTH_CONTAINER_IPS":         containerConfig.IPv4Address,
+				})
 			}
 		}
+
+		// for _, templateCfg := range request.TeamContainerConfigs {
+		// 	localLog.Statusf("Creating template for container: %s...\n", templateCfg.Name)
+
+		// 	var (
+		// 		ct              *proxmox.Container
+		// 		ctID            int
+		// 		conn            *sshcomm.SSHConnection
+		// 		containerConfig *proxmoxAPI.ContainerCreateOptions = &proxmoxAPI.ContainerCreateOptions{
+		// 			TemplatePath:     request.ContainerSpecs.TemplatePath,
+		// 			StoragePool:      request.ContainerSpecs.StoragePool,
+		// 			Hostname:         fmt.Sprintf("%s-template-%s", comp.ContainerRestrictions.HostnamePrefix, templateCfg.Name),
+		// 			RootPassword:     request.ContainerSpecs.RootPassword,
+		// 			RootSSHPublicKey: publicKey,
+		// 			StorageSizeGB:    request.ContainerSpecs.StorageSizeGB,
+		// 			MemoryMB:         request.ContainerSpecs.MemoryMB,
+		// 			Cores:            request.ContainerSpecs.Cores,
+		// 			GatewayIPv4:      request.ContainerSpecs.GatewayIPv4,
+		// 			IPv4Address:      fmt.Sprintf("10.0.%d.%d", 224, templateCfg.LastOctetValue),
+		// 			CIDRBlock:        request.ContainerSpecs.CIDRBlock,
+		// 			NameServer:       request.ContainerSpecs.NameServerIPv4,
+		// 			SearchDomain:     request.ContainerSpecs.SearchDomain,
+		// 		}
+		// 	)
+
+		// 	if ct, ctID, err = api.CreateContainer(api.NextNode(), containerConfig); err != nil {
+		// 		localLog.Errorf("Failed to create container: %v\n", err)
+		// 		return
+		// 	}
+
+		// 	localLog.Statusf("Container %s created (CTID: %d). Beginning setup...\n", containerConfig.Hostname, ctID)
+
+		// 	if err = api.StartContainer(ct); err != nil {
+		// 		localLog.Errorf("Failed to start container (CTID: %d): %v\n", ctID, err)
+		// 		return
+		// 	}
+
+		// 	if err = sshcomm.WaitOnline(containerConfig.IPv4Address); err != nil {
+		// 		localLog.Errorf("Container (CTID: %d) failed to come online: %v", ctID, err)
+		// 		return
+		// 	}
+
+		// 	localLog.Statusf("Container (CTID: %d) is online. Running setup script(s)...", ctID)
+		// 	if conn, err = sshcomm.Connect("root", containerConfig.IPv4Address, 22, sshcomm.WithPrivateKey([]byte(privateKey))); err != nil {
+		// 		localLog.Errorf("Failed to connect to container (CTID: %d) via SSH: %v\n", ctID, err)
+		// 		return
+		// 	}
+
+		// 	defer conn.Close()
+
+		// 	var envs = map[string]any{
+		// 		"KOTH_COMP_ID":               request.CompetitionID,
+		// 		"KOTH_ACCESS_TOKEN":          "test_token",
+		// 		"KOTH_PUBLIC_FOLDER":         fmt.Sprintf("http://%s:%d/api/competitions/%s/public", sshcomm.MustLocalIP(), strings.Split(config.Config.WebServer.Address, ":")[1], request.CompetitionID),
+		// 		"KOTH_TEAM_ID":               team.ID,
+		// 		"KOTH_HOSTNAME":              containerConfig.Hostname,
+		// 		"KOTH_IP":                    containerConfig.IPv4Address,
+		// 		"KOTH_CONTAINER_IPS_grafana": containerConfig.IPv4Address,
+		// 		"KOTH_CONTAINER_IPS":         containerConfig.IPv4Address,
+		// 	}
+		// }
 	}
 
 	// 4. Store in DB
