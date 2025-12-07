@@ -17,7 +17,7 @@ import (
 func TestCTLifecycle(t *testing.T) {
 	var err error
 
-	if err = config.InitEnv("../.env"); err != nil {
+	if err = config.Init("../config.toml"); err != nil {
 		t.Fatalf("failed to initialize environment: %v\n", err)
 		return
 	}
@@ -143,7 +143,7 @@ func TestCreateAndSetUpContainer(t *testing.T) {
 
 	t.Log("---- Beginning Setup Phase ----")
 	t.Log("Initializing env...")
-	if err = config.InitEnv("../.env"); err != nil {
+	if err = config.Init("../config.toml"); err != nil {
 		t.Fatalf("failed to initialize environment: %v\n", err)
 		return
 	}
@@ -266,7 +266,7 @@ func TestCreateAndSetUpContainer(t *testing.T) {
 func TestCTTemplateClone(t *testing.T) {
 	var err error
 
-	if err = config.InitEnv("../.env"); err != nil {
+	if err = config.Init("../config.toml"); err != nil {
 		t.Fatalf("failed to initialize environment: %v\n", err)
 		return
 	}
@@ -376,7 +376,7 @@ func TestCTTemplateClone(t *testing.T) {
 func TestMassCTLifecycle(t *testing.T) {
 	var err error
 
-	if err = config.InitEnv("../.env"); err != nil {
+	if err = config.Init("../config.toml"); err != nil {
 		t.Fatalf("failed to initialize environment: %v\n", err)
 		return
 	}
@@ -516,7 +516,7 @@ func TestMassCTLifecycle(t *testing.T) {
 func TestCleanup(t *testing.T) {
 	var err error
 
-	if err = config.InitEnv("../.env"); err != nil {
+	if err = config.Init("../config.toml"); err != nil {
 		t.Fatalf("failed to initialize environment: %v\n", err)
 		return
 	}

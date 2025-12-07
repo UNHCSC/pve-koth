@@ -8,20 +8,20 @@ import (
 	"sync"
 
 	"github.com/UNHCSC/pve-koth/config"
-	goProxmox "github.com/luthermonson/go-proxmox"
+	"github.com/luthermonson/go-proxmox"
 )
 
 type ProxmoxAPI struct {
 	createLock  sync.Mutex
-	client      *goProxmox.Client
+	client      *proxmox.Client
 	bg          context.Context
-	Nodes       []*goProxmox.Node
-	Cluster     *goProxmox.Cluster
+	Nodes       []*proxmox.Node
+	Cluster     *proxmox.Cluster
 	nodeRotator int
 }
 
 type ProxmoxAPICreateResult struct {
-	Container *goProxmox.Container
+	Container *proxmox.Container
 	CTID      int
 }
 
@@ -32,19 +32,19 @@ type ProxmoxAPIBulkCreateResult struct {
 
 func InitProxmox() (api *ProxmoxAPI, err error) {
 	api = &ProxmoxAPI{
-		client: goProxmox.NewClient(
-			fmt.Sprintf("https://%s:%s/api2/json", config.Config.Proxmox.Host, config.Config.Proxmox.Port),
-			goProxmox.WithHTTPClient(&http.Client{
+		client: proxmox.NewClient(
+			fmt.Sprintf("https://%s:%s/api2/json", config.Config.Proxmox.Hostname, config.Config.Proxmox.Port),
+			proxmox.WithHTTPClient(&http.Client{
 				Transport: &http.Transport{
 					TLSClientConfig: &tls.Config{
 						InsecureSkipVerify: true,
 					},
 				},
 			}),
-			goProxmox.WithAPIToken(config.Config.Proxmox.TokenID, config.Config.Proxmox.Secret),
+			proxmox.WithAPIToken(config.Config.Proxmox.TokenID, config.Config.Proxmox.Secret),
 		),
 		bg:    context.Background(),
-		Nodes: make([]*goProxmox.Node, 0),
+		Nodes: make([]*proxmox.Node, 0),
 	}
 
 	if api.Cluster, err = api.client.Cluster(api.bg); err != nil {
@@ -52,7 +52,7 @@ func InitProxmox() (api *ProxmoxAPI, err error) {
 		return
 	}
 
-	var nodeStatuses []*goProxmox.NodeStatus
+	var nodeStatuses []*proxmox.NodeStatus
 	if nodeStatuses, err = api.client.Nodes(api.bg); err != nil {
 		err = fmt.Errorf("failed to get node statuses: %w", err)
 		return
@@ -60,7 +60,7 @@ func InitProxmox() (api *ProxmoxAPI, err error) {
 
 	for _, ns := range nodeStatuses {
 		if ns.Status == "online" {
-			var node *goProxmox.Node
+			var node *proxmox.Node
 			if node, err = api.client.Node(api.bg, ns.Node); err != nil {
 				err = fmt.Errorf("failed to get node info for node %s: %w", ns.Node, err)
 				return
@@ -73,7 +73,7 @@ func InitProxmox() (api *ProxmoxAPI, err error) {
 	return
 }
 
-func (api *ProxmoxAPI) NextNode() *goProxmox.Node {
+func (api *ProxmoxAPI) NextNode() *proxmox.Node {
 	if len(api.Nodes) == 0 {
 		return nil
 	}

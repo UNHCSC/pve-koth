@@ -91,8 +91,8 @@ func CreateNewComp(request *db.CreateCompetitionRequest) (comp *db.Competition, 
 	}
 
 	localLog.Status("Generating SSH keypair...")
-	var publicKey, privateKey string
-	if publicKey, privateKey, err = sshcomm.CreateSSHKeyPair(fmt.Sprintf("./data/%s/ssh", request.CompetitionID)); err != nil {
+	var publicKey, _ string
+	if publicKey, _, err = sshcomm.CreateSSHKeyPair(fmt.Sprintf("./data/%s/ssh", request.CompetitionID)); err != nil {
 		localLog.Errorf("Failed to generate SSH keypair: %v\n", err)
 		return
 	}

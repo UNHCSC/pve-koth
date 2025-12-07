@@ -12,7 +12,7 @@ var mainLog *logger.Logger = logger.NewLogger().SetPrefix("[KOTH]", logger.BoldB
 func main() {
 	var err error
 
-	if err = config.InitEnv(".env"); err != nil {
+	if err = config.Init("config.toml"); err != nil {
 		mainLog.Errorf("failed to initialize environment: %v\n", err)
 		return
 	}

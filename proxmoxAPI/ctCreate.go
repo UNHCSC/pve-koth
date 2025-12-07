@@ -5,10 +5,10 @@ import (
 	"sync"
 	"time"
 
-	goProxmox "github.com/luthermonson/go-proxmox"
+	"github.com/luthermonson/go-proxmox"
 )
 
-func (api *ProxmoxAPI) CreateContainer(node *goProxmox.Node, conf *ContainerCreateOptions) (result *ProxmoxAPICreateResult, err error) {
+func (api *ProxmoxAPI) CreateContainer(node *proxmox.Node, conf *ContainerCreateOptions) (result *ProxmoxAPICreateResult, err error) {
 	api.createLock.Lock()
 	defer api.createLock.Unlock()
 
@@ -19,7 +19,7 @@ func (api *ProxmoxAPI) CreateContainer(node *goProxmox.Node, conf *ContainerCrea
 		return
 	}
 
-	var task *goProxmox.Task
+	var task *proxmox.Task
 	if task, err = node.NewContainer(api.bg, result.CTID, conf.GoProxmoxOptions()...); err != nil {
 		err = fmt.Errorf("failed to create container: %w", err)
 		return
@@ -38,7 +38,7 @@ func (api *ProxmoxAPI) CreateContainer(node *goProxmox.Node, conf *ContainerCrea
 	return
 }
 
-func (api *ProxmoxAPI) BulkCreateContainers(nodes []*goProxmox.Node, confs []*ContainerCreateOptions) (results []*ProxmoxAPIBulkCreateResult) {
+func (api *ProxmoxAPI) BulkCreateContainers(nodes []*proxmox.Node, confs []*ContainerCreateOptions) (results []*ProxmoxAPIBulkCreateResult) {
 	api.createLock.Lock()
 	defer api.createLock.Unlock()
 
@@ -53,7 +53,7 @@ func (api *ProxmoxAPI) BulkCreateContainers(nodes []*goProxmox.Node, confs []*Co
 			continue
 		}
 
-		var task *goProxmox.Task
+		var task *proxmox.Task
 		if task, results[i].Error = nodes[i%len(nodes)].NewContainer(api.bg, results[i].Result.CTID, confs[i].GoProxmoxOptions()...); results[i].Error != nil {
 			results[i].Error = fmt.Errorf("failed to create container: %w", results[i].Error)
 			continue
@@ -73,7 +73,7 @@ func (api *ProxmoxAPI) BulkCreateContainers(nodes []*goProxmox.Node, confs []*Co
 	return
 }
 
-func (api *ProxmoxAPI) BulkCreateContainersConcurrent(nodes []*goProxmox.Node, confs []*ContainerCreateOptions, numCreateRetries int) (results []*ProxmoxAPIBulkCreateResult, err error) {
+func (api *ProxmoxAPI) BulkCreateContainersConcurrent(nodes []*proxmox.Node, confs []*ContainerCreateOptions, numCreateRetries int) (results []*ProxmoxAPIBulkCreateResult, err error) {
 	api.createLock.Lock()
 	defer api.createLock.Unlock()
 
@@ -155,7 +155,7 @@ func (api *ProxmoxAPI) BulkCreateContainersConcurrent(nodes []*goProxmox.Node, c
 					}
 				}
 
-				var task *goProxmox.Task
+				var task *proxmox.Task
 				if task, results[index].Error = nodes[index%len(nodes)].NewContainer(api.bg, results[index].Result.CTID, confs[index].GoProxmoxOptions()...); results[index].Error != nil {
 					// results[index].Error = fmt.Errorf("failed to create container: %w", results[index].Error)
 					continue
