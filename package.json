@@ -1,0 +1,19 @@
+{
+    "name": "pve-koth",
+    "version": "1.0.0",
+    "type": "module",
+    "scripts": {
+        "build:css": "tailwindcss -i ./public/static/src/styles/tailwind.css -o ./public/static/build/app.css --minify",
+        "build:js": "webpack --config webpack.config.cjs --mode=production",
+        "watch:css": "tailwindcss -i ./public/static/src/styles/tailwind.css -o ./public/static/build/app.css --watch",
+        "watch:js": "webpack --config webpack.config.cjs --mode=development --watch",
+        "build": "npm-run-all build:css build:js",
+        "devel": "npm-run-all build --parallel watch:css watch:js"
+    },
+    "devDependencies": {
+        "npm-run-all": "latest",
+        "tailwindcss": "latest",
+        "webpack": "latest",
+        "webpack-cli": "latest"
+    }
+}

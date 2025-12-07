@@ -1,24 +1,155 @@
-<div class="p-6 md:p-8 rounded-2xl card shadow-xl">
-    <div class="flex items-center justify-between">
-        <h1 class="text-3xl font-bold">Competitions</h1>
-        <a href="/admin" class="text-sm text-blue-600 hover:underline">Admin</a>
-    </div>
-
-    <div id="empty" class="hidden text-gray-600 mt-2">No competitions yet.</div>
-
-    <ul id="comps" class="mt-4 space-y-3">
-        <!-- JS populates -->
-        <!-- Example style for items your JS adds:
-    <li class="p-4 rounded-xl border border-gray-200 hover:border-blue-300 transition">
-      <div class="flex items-center justify-between">
-        <div>
-          <div class="font-semibold">Competition Name</div>
-          <div class="text-xs text-gray-500">Details...</div>
+<div class="space-y-8">
+    <section class="glass-panel rounded-3xl border border-white/10 p-6 sm:p-8">
+        <div class="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+            <div class="text-center md:text-left">
+                <p class="text-xs uppercase tracking-[0.4em] text-slate-400">Welcome back</p>
+                <h1 class="text-3xl font-bold text-white">Operations console</h1>
+                <p class="text-slate-300">Monitor competitions, spin up new seasons, and keep teams moving from one spot.</p>
+            </div>
+            <div class="flex flex-wrap justify-center md:justify-end gap-3">
+                <a href="/scoreboard"
+                    class="inline-flex items-center rounded-2xl bg-blue-500 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-600">View
+                    scoreboard</a>
+                {{if .CanManage}}
+                <button id="open-create"
+                    class="inline-flex items-center rounded-2xl border border-white/30 px-4 py-2 text-sm font-semibold text-white/90 hover:bg-white/10">Create
+                    competition</button>
+                {{end}}
+            </div>
         </div>
-        <a href="/competition/123" class="text-blue-600 hover:underline text-sm">Open</a>
-      </div>
-    </li>
-    -->
-    </ul>
+    </section>
+
+    <section class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3" id="dashboard-stats">
+        <div class="rounded-2xl border border-white/10 bg-white/5 p-5">
+            <p class="text-xs uppercase tracking-[0.3em] text-slate-400">Total competitions</p>
+            <p class="text-3xl font-bold text-white" data-stat="total">0</p>
+        </div>
+        <div class="rounded-2xl border border-white/10 bg-white/5 p-5">
+            <p class="text-xs uppercase tracking-[0.3em] text-slate-400">Public</p>
+            <p class="text-3xl font-bold text-white" data-stat="public">0</p>
+        </div>
+        <div class="rounded-2xl border border-white/10 bg-white/5 p-5">
+            <p class="text-xs uppercase tracking-[0.3em] text-slate-400">Private</p>
+            <p class="text-3xl font-bold text-white" data-stat="private">0</p>
+        </div>
+    </section>
+
+    <section class="rounded-3xl border border-white/10 bg-slate-900/60 p-4 sm:p-6">
+        <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-4">
+            <h2 class="text-xl font-semibold text-white">Competitions</h2>
+            <button id="refresh-dashboard"
+                class="self-start sm:self-auto text-xs uppercase tracking-[0.3em] text-white/70 hover:text-white">Refresh</button>
+        </div>
+        <div id="empty" class="hidden text-slate-400 text-sm py-6 text-center">No competitions yet.</div>
+        <ul id="comps" class="space-y-4"></ul>
+    </section>
 </div>
-<script src="/static/dashboard.js" type="module" defer></script>
+
+{{if .CanManage}}
+<div id="create-modal" class="hidden fixed inset-0 z-50">
+    <div id="create-overlay" class="absolute inset-0 bg-black/50 backdrop-blur-sm"></div>
+    <div class="relative z-10 min-h-screen w-full flex items-center justify-center p-4">
+        <div class="w-full max-w-3xl bg-white rounded-2xl shadow-2xl border border-gray-200">
+            <div class="flex items-center justify-between px-6 py-4 border-b border-gray-200 bg-gray-50 rounded-t-2xl">
+                <h3 class="text-lg font-semibold text-gray-900">Create Competition</h3>
+                <button id="close-create"
+                    class="text-gray-500 hover:text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-400 rounded">&times;</button>
+            </div>
+            <div class="p-6">
+                <form id="create-comp" class="grid md:grid-cols-2 gap-5" action="javascript:void(0);">
+                    <div>
+                        <label for="comp-name" class="block text-sm font-medium text-gray-900">Name</label>
+                        <input id="comp-name" name="name" required
+                            class="mt-1 block w-full border border-gray-300 rounded-lg shadow-sm py-2.5 px-3 text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-400"
+                            placeholder="Spring KOTH 2026" />
+                    </div>
+                    <div>
+                        <label for="comp-private" class="block text-sm font-medium text-gray-900">Visibility</label>
+                        <select id="comp-private" name="isPrivate"
+                            class="mt-1 block w-full border border-gray-300 rounded-lg shadow-sm py-2.5 px-3 text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-400">
+                            <option value="0">Public</option>
+                            <option value="1">Private (restricted LDAP)</option>
+                        </select>
+                    </div>
+                    <div class="hidden md:col-span-2" id="ldap-groups-div">
+                        <label for="comp-groups" class="block text-sm font-medium text-gray-900">Allowed LDAP Groups
+                            (comma-separated)</label>
+                        <input id="comp-groups" name="groups"
+                            class="mt-1 block w-full border border-gray-300 rounded-lg shadow-sm py-2.5 px-3 text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-400"
+                            placeholder="cn=admins,cn=accounts,dc=cyber,dc=lab" />
+                    </div>
+                    <div class="md:col-span-2">
+                        <details class="rounded-lg border border-gray-200">
+                            <summary class="px-3 py-2 cursor-pointer font-medium select-none text-gray-900 bg-white rounded-lg">
+                                Container Defaults
+                            </summary>
+                            <div class="grid md:grid-cols-3 gap-5 p-4">
+                                <div>
+                                    <label for="hostnamePrefix" class="block text-sm font-medium text-gray-900 mb-1">Hostname
+                                        Prefix</label>
+                                    <input id="hostnamePrefix" name="hostnamePrefix" placeholder="unique-prefix"
+                                        class="w-full border border-gray-300 rounded-md shadow-sm p-2.5 text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-400" />
+                                </div>
+                                <div>
+                                    <label for="template" class="block text-sm font-medium text-gray-900 mb-1">CT Template</label>
+                                    <input id="template" name="template" value="local:vztmpl/ubuntu-25.04-standard.tar.zst"
+                                        class="w-full border border-gray-300 rounded-md shadow-sm p-2.5 text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-400" />
+                                </div>
+                                <div>
+                                    <label for="storagePool" class="block text-sm font-medium text-gray-900 mb-1">Storage Pool</label>
+                                    <input id="storagePool" name="storagePool" value="Storage"
+                                        class="w-full border border-gray-300 rounded-md shadow-sm p-2.5 text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-400" />
+                                </div>
+                                <div>
+                                    <label for="gatewayIPv4" class="block text-sm font-medium text-gray-900 mb-1">Gateway IPv4</label>
+                                    <input id="gatewayIPv4" name="gatewayIPv4" value="10.0.0.1"
+                                        class="w-full border border-gray-300 rounded-md shadow-sm p-2.5 text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-400" />
+                                </div>
+                                <div>
+                                    <label for="nameserver" class="block text-sm font-medium text-gray-900 mb-1">Nameserver</label>
+                                    <input id="nameserver" name="nameserver" value="10.0.0.2"
+                                        class="w-full border border-gray-300 rounded-md shadow-sm p-2.5 text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-400" />
+                                </div>
+                                <div>
+                                    <label for="searchDomain" class="block text-sm font-medium text-gray-900 mb-1">Search Domain</label>
+                                    <input id="searchDomain" name="searchDomain" value="cyber.lab"
+                                        class="w-full border border-gray-300 rounded-md shadow-sm p-2.5 text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-400" />
+                                </div>
+                                <div>
+                                    <label for="storageGB" class="block text-sm font-medium text-gray-900 mb-1">Storage (GB)</label>
+                                    <input id="storageGB" name="storageGB" type="number" value="8" min="4" max="24"
+                                        class="w-full border border-gray-300 rounded-md shadow-sm p-2.5 text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-400" />
+                                </div>
+                                <div>
+                                    <label for="memoryMB" class="block text-sm font-medium text-gray-900 mb-1">Memory (MB)</label>
+                                    <input id="memoryMB" name="memoryMB" type="number" value="512" min="128" max="4096"
+                                        class="w-full border border-gray-300 rounded-md shadow-sm p-2.5 text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-400" />
+                                </div>
+                                <div>
+                                    <label for="cores" class="block text-sm font-medium text-gray-900 mb-1">CPU Cores</label>
+                                    <input id="cores" name="cores" type="number" value="1" min="1" max="8"
+                                        class="w-full border border-gray-300 rounded-md shadow-sm p-2.5 text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-400" />
+                                </div>
+                                <div>
+                                    <label for="individualCIDR" class="block text-sm font-medium text-gray-900 mb-1">CIDR Block</label>
+                                    <input id="individualCIDR" name="individualCIDR" type="number" value="8" min="8" max="32"
+                                        class="w-full border border-gray-300 rounded-md shadow-sm p-2.5 text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-400" />
+                                </div>
+                            </div>
+                        </details>
+                    </div>
+                    <div class="md:col-span-2 flex items-center justify-end gap-3">
+                        <button id="cancel-create" type="button"
+                            class="px-4 py-2 rounded-lg bg-gray-100 text-gray-800 hover:bg-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-400">Cancel</button>
+                        <button type="submit"
+                            class="px-4 py-2 rounded-lg bg-blue-600 text-white font-medium hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-400">Create</button>
+                    </div>
+                </form>
+                <pre id="create-log" class="hidden mt-4 p-3 bg-black text-green-200 rounded-lg h-48 overflow-auto text-sm"></pre>
+            </div>
+        </div>
+    </div>
+</div>
+{{end}}
+
+<script type="module" src="/static/dashboard.js" defer></script>

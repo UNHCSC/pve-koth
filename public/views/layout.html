@@ -5,34 +5,87 @@
     <meta charset="UTF-8" />
     <title>King of the Hill • {{.Title}}</title>
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="/static/app.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Roboto:wght@400;500&display=swap"
+        rel="stylesheet">
     <style>
         body {
-            margin: 0;
-            padding: 0;
-            background-image: url("/static/img/unh.png");
-            background-size: cover;
-            background-repeat: no-repeat;
-            background-attachment: fixed;
+            font-family: 'Space Grotesk', 'Roboto', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+        }
 
-            width: 100%;
-            height: 100%;
-            overflow: hidden;
+        .glass-panel {
+            background: rgba(15, 23, 42, 0.7);
+            backdrop-filter: blur(14px);
+            box-shadow: 0 30px 80px rgba(15, 23, 42, 0.3);
         }
     </style>
 </head>
 
-<body class="min-h-screen text-gray-100 antialiased">
-    <div class="min-h-screen flex items-center justify-center p-4">
-        {{if .Error}}
-        <div class="w-full max-w-2xl p-6 bg-white text-gray-900 rounded-xl shadow-md">
-            <h1 class="text-3xl font-bold mb-4">A Critical Error Occurred:</h1>
-            <p class="bg-red-100 text-red-700 p-3 rounded">{{.Error}}</p>
+<body class="min-h-screen bg-slate-950 text-slate-100 antialiased">
+    <div class="relative isolate min-h-screen overflow-hidden">
+        <canvas id="bg-canvas" class="absolute inset-0 w-full h-full"></canvas>
+        <div class="absolute inset-0 bg-gradient-to-br from-slate-950 via-slate-900/90 to-slate-900/80 mix-blend-multiply"></div>
+
+        <div class="relative z-10 min-h-screen flex flex-col">
+            <header class="px-4 sm:px-8 py-5">
+                <div class="glass-panel rounded-2xl border border-white/10 px-4 sm:px-6 py-4">
+                    <div class="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+                        <div class="flex items-center justify-between gap-4">
+                            <a href="/" class="inline-flex items-center gap-2 text-lg font-semibold tracking-tight">
+                                <span class="h-10 w-10 rounded-xl bg-blue-500/90 flex items-center justify-center text-white text-xl">P</span>
+                                <span class="text-white font-bold">Proxmox KOTH</span>
+                            </a>
+                            <div class="md:hidden flex items-center gap-2 text-xs text-slate-300">
+                                {{if .LoggedIn}}
+                                <span>Hi, {{if .User}}{{.User}}{{else}}User{{end}}</span>
+                                <a href="/logout"
+                                    class="rounded-xl border border-white/20 px-3 py-1 text-xs font-semibold text-white hover:bg-white/10">Logout</a>
+                                {{else}}
+                                <a href="/login"
+                                    class="rounded-xl bg-blue-500 px-3 py-1 text-xs font-semibold text-white hover:bg-blue-600">Login</a>
+                                {{end}}
+                            </div>
+                        </div>
+
+                        <nav class="flex flex-wrap items-center gap-3 text-sm font-medium text-slate-200">
+                            <a href="/scoreboard" class="hover:text-white">Scoreboard</a>
+                            <a href="/dashboard" class="hover:text-white">Dashboard</a>
+                        </nav>
+
+                        <div class="hidden md:flex items-center gap-2">
+                            {{if .LoggedIn}}
+                            <div class="text-sm text-slate-300">Welcome, <span class="font-semibold">{{if .User}}{{.User}}{{else}}User{{end}}</span></div>
+                            <a href="/logout"
+                                class="inline-flex items-center rounded-xl border border-white/20 px-4 py-2 text-sm font-semibold text-white hover:bg-white/10">Logout</a>
+                            {{else}}
+                            <a href="/login"
+                                class="inline-flex items-center rounded-xl bg-blue-500 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-600">Login</a>
+                            {{end}}
+                        </div>
+                    </div>
+                </div>
+            </header>
+
+            <main class="flex-1 px-4 sm:px-8 pb-12">
+                {{if .Error}}
+                <div class="max-w-3xl mx-auto bg-red-500/10 border border-red-500/30 rounded-3xl p-8">
+                    <h1 class="text-2xl font-semibold mb-3 text-red-100">Something went wrong</h1>
+                    <p class="text-red-200">{{.Error}}</p>
+                </div>
+                {{else}}
+                {{embed}}
+                {{end}}
+            </main>
+
+            <footer class="px-4 sm:px-8 pb-8 text-center text-xs text-slate-400">
+                &copy; {{.CurrentYear}} Proxmox King of the Hill
+            </footer>
         </div>
-        {{else}}
-        {{embed}}
-        {{end}}
     </div>
+    <script type="module" src="/static/global.js" defer></script>
 </body>
 
 </html>

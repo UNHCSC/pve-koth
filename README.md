@@ -395,3 +395,16 @@ The public folder in the ZIP file must be less than 100MB in size by default. Th
 ## Networking
 
 TODO
+
+## Frontend Assets
+
+The public site now uses Tailwind CSS and Webpack for its styles and scripts. Source files live under
+`public/static/src`, and compiled assets are emitted to `public/static/build`.
+
+```bash
+npm install          # first-time setup
+npm run build        # compile CSS/JS once
+npm run devel        # watch Tailwind + Webpack during development
+```
+
+Built assets are written to `public/static/build` and served automatically by Fiber.

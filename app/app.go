@@ -20,10 +20,34 @@ func CreateApp() (app *fiber.App) {
 		BodyLimit: 100 * 1024 * 1024, // 100 MB
 	})
 
-	// Pages
-	app.Static("/static", "./public/static")
+	// Static assets (Tailwind/Webpack build output)
+	app.Static("/static", "./public/static/build")
+
+	// Public site
+	app.Get("/", showLanding)
+	app.Get("/login", showLogin)
+	app.Get("/logout", showLogout)
+	app.Get("/scoreboard", showScoreboard)
+	app.Get("/scoreboard/:competitionID", showScoreboard)
+	app.Get("/unauthorized", showUnauthorized)
+
+	// Authenticated areas
+	app.Get("/dashboard", mustBeLoggedIn, showDashboard)
 
 	// API
+	var api = app.Group("/api")
+	api.Post("/auth/login", apiLogin)
+	api.Post("/auth/logout", apiLogout)
+
+	var competitions = api.Group("/competitions")
+	competitions.Get("/", apiGetCompetitions)
+	competitions.Get("", apiGetCompetitions)
+	competitions.Get(":competitionID/public/*", apiGetPublicFile)
+
+	var scoreboard = api.Group("/scoreboard")
+	scoreboard.Get("/", apiGetScoreboard)
+	scoreboard.Get("", apiGetScoreboard)
+	scoreboard.Get(":competitionID", apiGetScoreboardCompetition)
 
 	return
 }

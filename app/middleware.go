@@ -1,8 +1,9 @@
 package app
 
 import (
-	"maps"
 	"crypto/rand"
+	"maps"
+	"time"
 
 	"github.com/UNHCSC/pve-koth/auth"
 	"github.com/gofiber/fiber/v2"
@@ -29,18 +30,10 @@ func mustBeLoggedIn(c *fiber.Ctx) error {
 	return c.Next()
 }
 
-func mustBeAdmin(c *fiber.Ctx) error {
-	var user *auth.AuthUser = auth.IsAuthenticated(c, jwtSigningKey)
-
-	if user == nil || user.Permissions() < auth.AuthPermsAdministrator {
-		c.Locals("Error", "You do not have permission to access that page.")
-	}
-
-	return c.Next()
-}
-
 func bindWithLocals(c *fiber.Ctx, binds fiber.Map) (out fiber.Map) {
-	out = fiber.Map{}
+	out = fiber.Map{
+		"CurrentYear": time.Now().Year(),
+	}
 
 	if errMsg := c.Locals("Error"); errMsg != nil {
 		out["Error"] = errMsg
