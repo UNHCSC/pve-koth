@@ -3,7 +3,7 @@
     "competitionName": "Example Competition",
     "competitionDescription": "This is an example competition.",
     "competitionHost": "Example Host",
-    "numTeams": 2,
+    "numTeams": 4,
     "privacy": {
         "public": true,
         "ldapAllowedGroupsFilter": []
