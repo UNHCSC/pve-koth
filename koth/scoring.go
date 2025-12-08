@@ -72,7 +72,7 @@ func runScoringPass() {
 
 	var wg sync.WaitGroup
 	for _, comp := range comps {
-		if comp == nil {
+		if comp == nil || !comp.ScoringActive {
 			continue
 		}
 
@@ -131,6 +131,10 @@ func scoreCompetition(comp *db.Competition) (err error) {
 		compNet   *net.IPNet
 		logPrefix = fmt.Sprintf("competition %s", comp.SystemID)
 	)
+
+	if !comp.ScoringActive {
+		return nil
+	}
 
 	if req, err = loadCompetitionDefinition(comp); err != nil {
 		return fmt.Errorf("%s: %w", logPrefix, err)

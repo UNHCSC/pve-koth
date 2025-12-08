@@ -135,6 +135,7 @@ func showScoreboard(c *fiber.Ctx) (err error) {
 		"Title":                 "Scoreboard",
 		"LoggedIn":              user != nil,
 		"User":                  displayName,
+		"CanManage":             user != nil && user.Permissions() >= auth.AuthPermsAdministrator,
 		"SelectedCompetitionID": c.Params("competitionID"),
 	}), "layout")
 }

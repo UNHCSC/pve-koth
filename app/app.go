@@ -45,6 +45,7 @@ func CreateApp() (app *fiber.App) {
 	competitions.Get(":competitionID/public/*", apiGetPublicFile)
 	competitions.Get(":competitionID/artifacts/*", apiGetArtifactFile)
 	competitions.Post(":competitionID/teardown", apiTeardownCompetition)
+	competitions.Post(":competitionID/scoring", apiSetCompetitionScoring)
 	competitions.Post("/upload", apiCreateCompetition)
 	competitions.Get("/upload/:jobID/stream", apiStreamUploadJob)
 

@@ -139,6 +139,7 @@ type Competition struct {
 	NetworkCIDR              string                `json:"networkCIDR" gomysql:"network_cidr"`
 	SetupPublicFolder        string                `json:"setupPublicFolder" gomysql:"setup_public_folder"`
 	PackageStoragePath       string                `json:"packageStoragePath" gomysql:"package_storage_path"`
+	ScoringActive            bool                  `json:"scoringActive" gomysql:"scoring_active"`
 }
 
 type CompetitionPackage struct {

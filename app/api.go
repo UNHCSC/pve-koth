@@ -33,6 +33,7 @@ type competitionSummary struct {
 	TeamCount      int       `json:"teamCount"`
 	ContainerCount int       `json:"containerCount"`
 	IsPrivate      bool      `json:"isPrivate"`
+	ScoringActive  bool      `json:"scoringActive"`
 	CreatedAt      time.Time `json:"createdAt"`
 }
 
@@ -65,6 +66,7 @@ type scoreboardCompetition struct {
 	TeamCount      int              `json:"teamCount"`
 	ContainerCount int              `json:"containerCount"`
 	IsPrivate      bool             `json:"isPrivate"`
+	ScoringActive  bool             `json:"scoringActive"`
 	Teams          []scoreboardTeam `json:"teams"`
 }
 
@@ -577,6 +579,57 @@ func apiTeardownCompetition(c *fiber.Ctx) (err error) {
 	})
 }
 
+type scoringToggleRequest struct {
+	Active bool `json:"active"`
+}
+
+func apiSetCompetitionScoring(c *fiber.Ctx) (err error) {
+	user := auth.IsAuthenticated(c, jwtSigningKey)
+	if user == nil {
+		return fiber.NewError(fiber.StatusUnauthorized, "authentication required")
+	}
+
+	if user.Permissions() < auth.AuthPermsAdministrator {
+		return fiber.NewError(fiber.StatusForbidden, "administrator access required")
+	}
+
+	identifier := strings.TrimSpace(c.Params("competitionID"))
+	if identifier == "" {
+		return fiber.NewError(fiber.StatusBadRequest, "competition identifier required")
+	}
+
+	var comp *db.Competition
+	if comp, err = loadCompetitionByIdentifier(identifier); err != nil {
+		appLog.Errorf("failed to resolve competition %q: %v\n", identifier, err)
+		return fiber.NewError(fiber.StatusInternalServerError, "failed to load competition")
+	}
+
+	if comp == nil {
+		return fiber.ErrNotFound
+	}
+
+	var payload scoringToggleRequest
+	if err = c.BodyParser(&payload); err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, "invalid request payload")
+	}
+
+	comp.ScoringActive = payload.Active
+	if err = db.Competitions.Update(comp); err != nil {
+		appLog.Errorf("failed to update scoring flag for %s: %v\n", comp.SystemID, err)
+		return fiber.NewError(fiber.StatusInternalServerError, "failed to update competition")
+	}
+
+	action := "paused"
+	if comp.ScoringActive {
+		action = "started"
+	}
+
+	return c.JSON(fiber.Map{
+		"message":       fmt.Sprintf("scoring %s for %s", action, comp.SystemID),
+		"scoringActive": comp.ScoringActive,
+	})
+}
+
 func apiGetScoreboard(c *fiber.Ctx) (err error) {
 	var (
 		user    *auth.AuthUser = auth.IsAuthenticated(c, jwtSigningKey)
@@ -667,6 +720,7 @@ func summarizeCompetition(comp *db.Competition) competitionSummary {
 		TeamCount:      len(comp.TeamIDs),
 		ContainerCount: len(comp.ContainerIDs),
 		IsPrivate:      comp.IsPrivate,
+		ScoringActive:  comp.ScoringActive,
 		CreatedAt:      comp.CreatedAt,
 	}
 }
@@ -680,6 +734,7 @@ func buildScoreboardCompetition(comp *db.Competition) (scoreboardCompetition, er
 		TeamCount:      len(comp.TeamIDs),
 		ContainerCount: len(comp.ContainerIDs),
 		IsPrivate:      comp.IsPrivate,
+		ScoringActive:  comp.ScoringActive,
 		Teams:          []scoreboardTeam{},
 	}
 

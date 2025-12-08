@@ -1,4 +1,4 @@
-<div id="scoreboard-root" data-selected="{{.SelectedCompetitionID}}" class="space-y-6">
+<div id="scoreboard-root" data-selected="{{.SelectedCompetitionID}}" data-can-manage="{{if .CanManage}}true{{else}}false{{end}}" class="space-y-6">
     <section class="rounded-3xl border border-white/10 bg-slate-900/60 p-4 sm:p-6 space-y-6">
         <div class="flex items-center gap-3 overflow-x-auto pb-2" id="scoreboard-tabs"></div>
         <div id="scoreboard-empty" class="text-slate-300 text-sm text-center py-12 hidden">

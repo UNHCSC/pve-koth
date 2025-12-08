@@ -6,6 +6,7 @@ const table = document.getElementById("scoreboard-table");
 const empty = document.getElementById("scoreboard-empty");
 const gridSection = document.getElementById("scoreboard-grid");
 const gridBody = gridSection?.querySelector("[data-grid]");
+const canManage = root?.dataset.canManage === "true";
 const REFRESH_INTERVAL = 30_000;
 const dateFormatter = new Intl.DateTimeFormat(undefined, {
     dateStyle: "medium",
@@ -252,6 +253,27 @@ function renderTable() {
         ? selected.teams.map((team, index) => renderRankingRow(team, index)).join("")
         : `<tr><td class="px-3 py-4 text-center text-slate-300" colspan="4">Scores are not ready yet.</td></tr>`;
 
+    const scoringBadge = selected.scoringActive
+        ? '<span class="inline-flex items-center rounded-full border border-emerald-400/40 bg-emerald-500/10 px-2 py-0.5 text-[0.65rem] font-semibold uppercase tracking-[0.2em] text-emerald-200">Scoring active</span>'
+        : '<span class="inline-flex items-center rounded-full border border-amber-400/40 bg-amber-500/10 px-2 py-0.5 text-[0.65rem] font-semibold uppercase tracking-[0.2em] text-amber-200">Scoring paused</span>';
+
+    const scoringNotice = selected.scoringActive
+        ? ""
+        : '<p class="text-[0.7rem] text-amber-200 bg-amber-500/10 border border-amber-500/20 rounded-2xl px-3 py-1">Scoring is currently paused for this competition. Results will not update until scoring resumes.</p>';
+
+    const scoringControls =
+        canManage && selected
+            ? `<div class="flex items-center gap-2 justify-end">
+                    <button class="text-xs rounded-full border px-3 py-1 font-semibold ${
+                        selected.scoringActive
+                            ? "border-amber-400/50 text-amber-200 hover:bg-amber-500/10"
+                            : "border-emerald-400/60 text-emerald-200 hover:bg-emerald-500/10"
+                    }" data-action="scoreboard-toggle" data-id="${escapeHTML(selected.competitionID)}" data-active="${
+                  selected.scoringActive ? "true" : "false"
+              }">${selected.scoringActive ? "Pause scoring" : "Start scoring"}</button>
+                </div>`
+            : "";
+
     table.innerHTML = `<div class="p-3 md:p-4 space-y-3 text-sm">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
@@ -259,11 +281,14 @@ function renderTable() {
                 <h2 class="text-xl font-semibold text-white">${escapeHTML(selected.name)}</h2>
                 <p class="text-xs text-slate-300">${escapeHTML(selected.description || "No description provided.")}</p>
             </div>
-            <div class="text-xs text-slate-300 text-right">
+            <div class="text-xs text-slate-300 text-right space-y-1">
                 <p>${selected.teamCount} teams · ${selected.containerCount} containers</p>
                 <p>Host: ${escapeHTML(selected.host || "Unknown")}</p>
+                ${scoringBadge}
+                ${scoringControls}
             </div>
         </div>
+        ${scoringNotice}
         <div class="overflow-x-auto">
             <table class="min-w-full text-left">
                 <thead>
@@ -330,4 +355,45 @@ async function loadScoreboard() {
 if (root) {
     loadScoreboard();
     setInterval(loadScoreboard, REFRESH_INTERVAL);
+    if (canManage && table) {
+        table.addEventListener("click", (event) => {
+            const button = event.target.closest("[data-action='scoreboard-toggle']");
+            if (!button) return;
+            const compID = button.dataset.id;
+            const currentlyActive = button.dataset.active === "true";
+            if (!compID) return;
+            toggleScoringState(compID, !currentlyActive, button);
+        });
+    }
+}
+
+async function toggleScoringState(compID, nextState, button) {
+    if (!compID) return;
+    const originalText = button.textContent;
+    button.disabled = true;
+    button.textContent = nextState ? "Starting…" : "Pausing…";
+
+    try {
+        const response = await fetch(`/api/competitions/${encodeURIComponent(compID)}/scoring`, {
+            method: "POST",
+            credentials: "include",
+            headers: {
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify({ active: nextState })
+        });
+
+        if (!response.ok) {
+            const result = await response.json().catch(() => ({}));
+            throw new Error(result?.error || result?.message || "Failed to toggle scoring");
+        }
+
+        await loadScoreboard();
+    } catch (error) {
+        console.error(error);
+        alert(error.message || "Unable to update scoring state.");
+    } finally {
+        button.disabled = false;
+        button.textContent = originalText;
+    }
 }

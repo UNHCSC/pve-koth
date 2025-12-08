@@ -1,6 +1,7 @@
 package koth
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"net/url"
@@ -9,6 +10,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/UNHCSC/pve-koth/config"
@@ -21,6 +24,53 @@ import (
 var (
 	api *proxmoxAPI.ProxmoxAPI
 )
+
+const (
+	containerCreateRetries = 3
+	containerStartRetries  = 3
+	containerRetryDelay    = 5 * time.Second
+)
+
+var spinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
+
+type threadSafeLogger struct {
+	sink ProgressLogger
+	mu   sync.Mutex
+}
+
+func (l *threadSafeLogger) Status(message string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.sink.Status(message)
+}
+
+func (l *threadSafeLogger) Statusf(format string, args ...any) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.sink.Statusf(format, args...)
+}
+
+func (l *threadSafeLogger) Errorf(format string, args ...any) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.sink.Errorf(format, args...)
+}
+
+func (l *threadSafeLogger) Successf(format string, args ...any) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.sink.Successf(format, args...)
+}
+
+func wrapLoggerSafe(log ProgressLogger) ProgressLogger {
+	if log == nil {
+		return nil
+	}
+	if _, ok := log.(*threadSafeLogger); ok {
+		return log
+	}
+	return &threadSafeLogger{sink: log}
+}
 
 func Init() (err error) {
 	api, err = proxmoxAPI.InitProxmox()
@@ -66,6 +116,7 @@ func CreateNewCompWithLogger(request *db.CreateCompetitionRequest, logSink Progr
 	} else {
 		localLog = logger.NewLogger().SetPrefix(fmt.Sprintf("INIT %s", request.CompetitionName), logger.BoldCyan).IncludeTimestamp()
 	}
+	localLog = wrapLoggerSafe(localLog)
 
 	localLog.Statusf("Creating new competition: %s\n", request.CompetitionName)
 
@@ -163,6 +214,7 @@ func CreateNewCompWithLogger(request *db.CreateCompetitionRequest, logSink Progr
 		NetworkCIDR:        compSubnet.String(),
 		SetupPublicFolder:  publicFolderRel,
 		PackageStoragePath: packageRoot,
+		ScoringActive:      false,
 	}
 
 	if err = db.Competitions.Insert(comp); err != nil {
@@ -195,6 +247,8 @@ func CreateNewCompWithLogger(request *db.CreateCompetitionRequest, logSink Progr
 	var (
 		plans        []*containerPlan
 		teamNetworks = make(map[int64]*teamNetwork)
+		teamLocks    = make(map[int64]*sync.Mutex)
+		createdTeams []*db.Team
 	)
 
 	for teamIndex := 0; teamIndex < request.NumTeams; teamIndex++ {
@@ -212,11 +266,13 @@ func CreateNewCompWithLogger(request *db.CreateCompetitionRequest, logSink Progr
 			return
 		}
 
+		createdTeams = append(createdTeams, team)
 		comp.TeamIDs = append(comp.TeamIDs, team.ID)
 		teamNetworks[team.ID] = &teamNetwork{
 			ipsByName: make(map[string]string),
 			ipOrder:   make([]string, 0),
 		}
+		teamLocks[team.ID] = &sync.Mutex{}
 
 		var teamSubnetBase uint32
 		if teamSubnetBase, err = teamSubnetBaseIP(compSubnet, teamIndex); err != nil {
@@ -272,65 +328,85 @@ func CreateNewCompWithLogger(request *db.CreateCompetitionRequest, logSink Progr
 		return
 	}
 
-	var provisioned []*provisionedContainer
+	var (
+		provisioned         []*provisionedContainer
+		provisionedMu       sync.Mutex
+		totalContainers     = len(plans)
+		completedContainers int32
+		spinnerCounter      int32
+	)
 	defer func() {
 		if err != nil {
 			cleanupProvisionedContainers(localLog, comp, provisioned)
+			cleanupFailedCompetitionResources(localLog, comp, createdTeams, dataDir)
 		}
 	}()
+
+	var compLock sync.Mutex
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
 	var (
 		publicFolderURL = buildCompetitionPublicBase(externalBaseURL(), comp.SystemID)
 		artifactBaseURL = buildCompetitionArtifactBase(externalBaseURL(), comp.SystemID)
 	)
 
+	localLog.Statusf("%s Provisioning progress: (0/%d) containers complete.", nextSpinnerFrame(&spinnerCounter), totalContainers)
+	progressStop := make(chan struct{})
+	go func() {
+		ticker := time.NewTicker(1 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-progressStop:
+				return
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				current := atomic.LoadInt32(&completedContainers)
+				localLog.Statusf("%s Provisioning progress: (%d/%d) containers complete.", nextSpinnerFrame(&spinnerCounter), current, totalContainers)
+			}
+		}
+	}()
+
+	errCh := make(chan error, len(plans))
+	var wg sync.WaitGroup
+
 	for _, plan := range plans {
-		localLog.Statusf("Provisioning container %s for %s...", plan.options.Hostname, plan.team.Name)
-		localLog.Statusf("Container options for %s: %+v", plan.options.Hostname, plan.options)
+		wg.Add(1)
+		network := teamNetworks[plan.team.ID]
+		teamLock := teamLocks[plan.team.ID]
 
-		var createResult *proxmoxAPI.ProxmoxAPICreateResult
-		if createResult, err = api.CreateContainer(api.NextNode(), plan.options); err != nil {
-			localLog.Errorf("Failed to create container %s: %v\n", plan.options.Hostname, err)
-			return
-		}
+		go func(plan *containerPlan, network *teamNetwork, teamLock *sync.Mutex) {
+			defer wg.Done()
+			entry, perr := provisionContainerPlan(ctx, localLog, plan, comp, network, privateKey, publicFolderURL, artifactBaseURL, teamLock, &compLock)
+			if entry != nil {
+				provisionedMu.Lock()
+				provisioned = append(provisioned, entry)
+				provisionedMu.Unlock()
+			}
+			if perr == nil && entry != nil && entry.recorded {
+				current := atomic.AddInt32(&completedContainers, 1)
+				localLog.Statusf("%s Provisioning progress: (%d/%d) containers complete.", nextSpinnerFrame(&spinnerCounter), current, totalContainers)
+			}
+			if perr != nil {
+				select {
+				case errCh <- perr:
+				default:
+				}
+				cancel()
+			}
+		}(plan, network, teamLock)
+	}
 
-		provisioned = append(provisioned, &provisionedContainer{
-			plan:   plan,
-			result: createResult,
-		})
+	wg.Wait()
+	close(progressStop)
 
-		localLog.Statusf("Container %s created (CTID: %d). Starting...", plan.options.Hostname, createResult.CTID)
-		if err = api.StartContainer(createResult.Container); err != nil {
-			localLog.Errorf("Failed to start container %d: %v\n", createResult.CTID, err)
-			return
-		}
-
-		localLog.Statusf("Waiting for container %d (%s) to come online...", createResult.CTID, plan.ipAddress)
-		if err = ssh.WaitOnline(plan.ipAddress); err != nil {
-			localLog.Errorf("Container %d did not come online: %v\n", createResult.CTID, err)
-			return
-		}
-
-		var conn *ssh.SSHConnection
-
-		if conn, err = ssh.ConnectOnceReadyWithRetry("root", plan.ipAddress, 22, 5, ssh.WithPrivateKey([]byte(privateKey))); err != nil {
-			localLog.Errorf("Failed to connect to container %d via SSH: %v\n", createResult.CTID, err)
-			break
-		} else {
-			defer conn.Close()
-		}
-
-		if err = runSetupScripts(localLog, conn, comp, plan, teamNetworks[plan.team.ID], publicFolderURL, artifactBaseURL); err != nil {
-			return
-		}
-
-		if err = recordProvisionedContainer(comp, plan.team, createResult, plan.ipAddress); err != nil {
-			localLog.Errorf("Failed to record container %d: %v\n", createResult.CTID, err)
-			return
-		}
-		provisioned[len(provisioned)-1].recorded = true
-
-		localLog.Statusf("Container %s (CTID: %d) provisioned successfully.", plan.options.Hostname, createResult.CTID)
+	select {
+	case provisionErr := <-errCh:
+		err = provisionErr
+		return
+	default:
 	}
 
 	if err = db.Competitions.Update(comp); err != nil {
@@ -342,6 +418,83 @@ func CreateNewCompWithLogger(request *db.CreateCompetitionRequest, logSink Progr
 
 	localLog.Successf("Successfully created competition: %s\n", request.CompetitionName)
 	return
+}
+
+func provisionContainerPlan(ctx context.Context, log ProgressLogger, plan *containerPlan, comp *db.Competition, network *teamNetwork, privateKey, publicFolderURL, artifactBaseURL string, teamLock *sync.Mutex, compLock *sync.Mutex) (entry *provisionedContainer, err error) {
+	if plan == nil {
+		return nil, fmt.Errorf("container plan is nil")
+	}
+
+	log.Statusf("Provisioning container %s for %s...", plan.options.Hostname, plan.team.Name)
+	log.Statusf("Container options for %s: %+v", plan.options.Hostname, plan.options)
+
+	var createResult *proxmoxAPI.ProxmoxAPICreateResult
+	if err = retryWithDelay(ctx, containerCreateRetries, containerRetryDelay, func(attempt int) error {
+		log.Statusf("Creating container %s (attempt %d/%d)...", plan.options.Hostname, attempt+1, containerCreateRetries)
+		result, createErr := api.CreateContainer(api.NextNode(), plan.options)
+		if createErr != nil {
+			log.Errorf("Failed to create container %s on attempt %d: %v\n", plan.options.Hostname, attempt+1, createErr)
+			return createErr
+		}
+		createResult = result
+		return nil
+	}); err != nil {
+		return nil, err
+	}
+
+	entry = &provisionedContainer{
+		plan:   plan,
+		result: createResult,
+	}
+
+	if err = retryWithDelay(ctx, containerStartRetries, containerRetryDelay, func(attempt int) error {
+		log.Statusf("Starting container %s (CTID: %d) attempt %d/%d...", plan.options.Hostname, createResult.CTID, attempt+1, containerStartRetries)
+		startErr := api.StartContainer(createResult.Container)
+		if startErr != nil {
+			log.Errorf("Failed to start container %d on attempt %d: %v\n", createResult.CTID, attempt+1, startErr)
+		}
+		return startErr
+	}); err != nil {
+		return entry, err
+	}
+
+	if ctx != nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return entry, ctxErr
+		}
+	}
+
+	log.Statusf("Waiting for container %d (%s) to come online...", createResult.CTID, plan.ipAddress)
+	if err = ssh.WaitOnline(plan.ipAddress); err != nil {
+		log.Errorf("Container %d did not come online: %v\n", createResult.CTID, err)
+		return entry, err
+	}
+
+	var conn *ssh.SSHConnection
+	if conn, err = ssh.ConnectOnceReadyWithRetry("root", plan.ipAddress, 22, 5, ssh.WithPrivateKey([]byte(privateKey))); err != nil {
+		log.Errorf("Failed to connect to container %d via SSH: %v\n", createResult.CTID, err)
+		return entry, err
+	}
+	defer conn.Close()
+
+	if ctx != nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return entry, ctxErr
+		}
+	}
+
+	if err = runSetupScripts(log, conn, comp, plan, network, publicFolderURL, artifactBaseURL); err != nil {
+		return entry, err
+	}
+
+	if err = recordProvisionedContainer(comp, plan.team, createResult, plan.ipAddress, teamLock, compLock); err != nil {
+		log.Errorf("Failed to record container %d: %v\n", createResult.CTID, err)
+		return entry, err
+	}
+	entry.recorded = true
+
+	log.Statusf("Container %s (CTID: %d) provisioned successfully.", plan.options.Hostname, createResult.CTID)
+	return entry, nil
 }
 
 func runSetupScripts(log ProgressLogger, conn *ssh.SSHConnection, comp *db.Competition, plan *containerPlan, network *teamNetwork, publicFolderURL, artifactBaseURL string) (err error) {
@@ -417,7 +570,15 @@ func buildScriptEnv(comp *db.Competition, plan *containerPlan, network *teamNetw
 	return envs
 }
 
-func recordProvisionedContainer(comp *db.Competition, team *db.Team, result *proxmoxAPI.ProxmoxAPICreateResult, ip string) (err error) {
+func recordProvisionedContainer(comp *db.Competition, team *db.Team, result *proxmoxAPI.ProxmoxAPICreateResult, ip string, teamLock *sync.Mutex, compLock *sync.Mutex) (err error) {
+	if teamLock != nil {
+		teamLock.Lock()
+		defer teamLock.Unlock()
+	}
+	if compLock != nil {
+		compLock.Lock()
+		defer compLock.Unlock()
+	}
 	var record = &db.Container{
 		PVEID:       int64(result.CTID),
 		IPAddress:   ip,
@@ -490,6 +651,73 @@ func removeIDFromSlice(source []int64, target int64) []int64 {
 	}
 
 	return result
+}
+
+func cleanupFailedCompetitionResources(log ProgressLogger, comp *db.Competition, teams []*db.Team, dataDir string) {
+	for _, team := range teams {
+		if team == nil || team.ID == 0 {
+			continue
+		}
+		if err := db.Teams.Delete(team.ID); err != nil {
+			log.Errorf("Failed to remove team record %d during cleanup: %v\n", team.ID, err)
+		}
+	}
+
+	if comp != nil && comp.ID != 0 {
+		if err := db.Competitions.Delete(comp.ID); err != nil {
+			log.Errorf("Failed to remove competition record %d during cleanup: %v\n", comp.ID, err)
+		}
+	}
+
+	if dataDir != "" {
+		if err := os.RemoveAll(dataDir); err != nil {
+			log.Errorf("Failed to remove competition data directory %s: %v\n", dataDir, err)
+		}
+	}
+}
+
+func retryWithDelay(ctx context.Context, attempts int, delay time.Duration, fn func(attempt int) error) error {
+	var err error
+	for attempt := 0; attempt < attempts; attempt++ {
+		if ctx != nil {
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			default:
+			}
+		}
+
+		if err = fn(attempt); err == nil {
+			return nil
+		}
+
+		if attempt == attempts-1 {
+			break
+		}
+
+		if ctx != nil {
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(delay):
+			}
+		} else {
+			time.Sleep(delay)
+		}
+	}
+
+	return err
+}
+
+func nextSpinnerFrame(counter *int32) string {
+	if counter == nil || len(spinnerFrames) == 0 {
+		return ""
+	}
+	idx := atomic.AddInt32(counter, 1)
+	if idx <= 0 {
+		idx = 0
+	}
+	return spinnerFrames[int(idx-1)%len(spinnerFrames)]
 }
 
 func externalBaseURL() string {

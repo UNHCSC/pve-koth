@@ -127,13 +127,50 @@ function setupCreateCompetitionMenu() {
         state.eventSource = source;
 
         source.onmessage = (event) => {
-            appendLog(`[provisioning] ${event.data}`);
+            const message = event.data || "";
+            appendLog(`[provisioning] ${message}`);
+            handleProvisioningStatus(message);
         };
 
         source.onerror = () => {
             appendLog("Log stream disconnected.");
             closeStream();
         };
+    }
+
+    function handleProvisioningStatus(message = "") {
+        const lower = message.toLowerCase();
+        const progressMatch = message.match(/^(\S)\s+Provisioning progress:\s*\((\d+)\/(\d+)\)/i);
+        if (progressMatch) {
+            const spinner = progressMatch[1];
+            const done = Number(progressMatch[2]);
+            const total = Number(progressMatch[3]);
+            updateSummary(`${spinner} Provisioning containers (${done}/${total})`, "text-amber-300");
+            if (total > 0 && done >= total) {
+                loadDashboard();
+            }
+            return;
+        }
+        if (lower.includes("creating new competition") || lower.includes("creating competition record")) {
+            updateSummary("Creating competition records...", "text-blue-400");
+            return;
+        }
+        if (lower.includes("generating ssh keypair")) {
+            updateSummary("Generating SSH credentials...", "text-blue-400");
+            return;
+        }
+        if (lower.includes("creating container templates") || lower.includes("provisioning container")) {
+            updateSummary("Provisioning containers...", "text-amber-400");
+            return;
+        }
+        if (lower.includes("successfully created competition") || lower.includes("provisioning completed successfully")) {
+            updateSummary("Provisioning complete", "text-emerald-500");
+            loadDashboard();
+            return;
+        }
+        if (lower.includes("error") || lower.includes("failed")) {
+            updateSummary("Provisioning encountered errors", "text-rose-500");
+        }
     }
 
     function updateSummary(statusText = "Waiting for upload", statusClass = "text-slate-300") {
@@ -263,11 +300,12 @@ function setupCreateCompetitionMenu() {
             if (typeof result?.packageID !== "undefined") {
                 appendLog(`Stored package ID: ${result.packageID}`);
             }
-            updateSummary(successMessage, "text-emerald-600");
+            updateSummary("Provisioning will begin shortly...", "text-blue-400");
             if (result?.jobID) {
                 startLogStream(result.jobID);
             } else if (Array.isArray(result?.logs)) {
                 appendServerLogs(result.logs);
+                loadDashboard();
             }
         } catch (error) {
             appendLog(`Error: ${error.message}`);
@@ -304,6 +342,9 @@ function renderCompetitions(competitions = []) {
             const badge = comp.isPrivate
                 ? '<span class="ml-2 rounded-full bg-rose-500/20 text-rose-200 text-xs px-2 py-0.5">Private</span>'
                 : '<span class="ml-2 rounded-full bg-emerald-500/20 text-emerald-200 text-xs px-2 py-0.5">Public</span>';
+            const scoringBadge = comp.scoringActive
+                ? '<span class="ml-2 rounded-full bg-emerald-500/20 text-emerald-200 text-xs px-2 py-0.5">Scoring active</span>'
+                : '<span class="ml-2 rounded-full bg-amber-500/20 text-amber-100 text-xs px-2 py-0.5">Scoring paused</span>';
 
             const actions = `
                 <div class="flex flex-col items-end gap-2 mt-2">
@@ -312,18 +353,24 @@ function renderCompetitions(competitions = []) {
                     )}">Open scoreboard</a>
                     ${
                         canManage
-                            ? `<button class="inline-flex items-center rounded-xl border border-rose-500/60 px-3 py-1 text-xs font-semibold text-rose-200 hover:bg-rose-500/10 focus:outline-none focus:ring-2 focus:ring-rose-400 disabled:opacity-60"
+                            ? `<div class="flex flex-col gap-2 items-end">
+                                <button class="inline-flex items-center rounded-xl border border-white/40 px-3 py-1 text-xs font-semibold text-white/90 hover:bg-white/10 focus:outline-none focus:ring-2 focus:ring-blue-400 disabled:opacity-60"
+                                    data-action="toggle-scoring"
+                                    data-active="${comp.scoringActive ? "true" : "false"}"
+                                    data-id="${escapeHTML(comp.competitionID)}"
+                                >${comp.scoringActive ? "Stop scoring" : "Start scoring"}</button>
+                                <button class="inline-flex items-center rounded-xl border border-rose-500/60 px-3 py-1 text-xs font-semibold text-rose-200 hover:bg-rose-500/10 focus:outline-none focus:ring-2 focus:ring-rose-400 disabled:opacity-60"
                                 data-action="teardown"
                                 data-id="${escapeHTML(comp.competitionID)}"
                                 data-name="${escapeHTML(comp.name)}"
-                            >Tear down</button>`
+                            >Tear down</button></div>`
                             : ""
                     }
                 </div>`;
 
             return `<li class="rounded-2xl border border-white/10 bg-white/5 p-5 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
                 <div>
-                    <p class="text-lg font-semibold text-white">${escapeHTML(comp.name)}${badge}</p>
+                    <p class="text-lg font-semibold text-white">${escapeHTML(comp.name)}${badge}${scoringBadge}</p>
                     <p class="text-sm text-slate-300">${escapeHTML(comp.description || "No description")}</p>
                     <p class="text-xs text-slate-400 mt-1">Hosted by ${escapeHTML(comp.host || "Unknown")}</p>
                 </div>
@@ -372,6 +419,42 @@ async function teardownCompetition(button) {
     }
 }
 
+async function toggleScoring(button) {
+    if (!button) return;
+    const compID = button.dataset.id;
+    const currentlyActive = button.dataset.active === "true";
+    if (!compID) return;
+
+    const nextState = !currentlyActive;
+    const originalText = button.textContent;
+    button.disabled = true;
+    button.textContent = nextState ? "Starting…" : "Stopping…";
+
+    try {
+        const response = await fetch(`/api/competitions/${encodeURIComponent(compID)}/scoring`, {
+            method: "POST",
+            credentials: "include",
+            headers: {
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify({ active: nextState })
+        });
+
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok) {
+            throw new Error(result?.error || result?.message || "Failed to update scoring");
+        }
+
+        await loadDashboard();
+    } catch (error) {
+        console.error(error);
+        window.alert(error.message || "Unable to update scoring state.");
+    } finally {
+        button.disabled = false;
+        button.textContent = originalText;
+    }
+}
+
 async function loadDashboard() {
     try {
         const response = await fetch("/api/competitions", { credentials: "include" });
@@ -390,6 +473,11 @@ async function loadDashboard() {
 refreshButton?.addEventListener("click", loadDashboard);
 if (canManage && list) {
     list.addEventListener("click", (event) => {
+        const toggle = event.target.closest("[data-action='toggle-scoring']");
+        if (toggle) {
+            toggleScoring(toggle);
+            return;
+        }
         const target = event.target.closest("[data-action='teardown']");
         if (target) {
             teardownCompetition(target);
