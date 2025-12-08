@@ -1,4 +1,4 @@
-package sshcomm
+package ssh
 
 import (
 	"crypto/rand"
@@ -6,6 +6,7 @@ import (
 	"crypto/x509"
 	"encoding/pem"
 	"os"
+	"path/filepath"
 
 	"golang.org/x/crypto/ssh"
 )
@@ -19,14 +20,9 @@ func readFileHelper(path string) (data string, err error) {
 	return string(fileData), nil
 }
 
-func CreateSSHKeyPair(directory string) (pub, priv string, err error) {
-	if _, err = os.Stat(directory); !os.IsNotExist(err) {
-		err = os.ErrExist
+func CreateSSHKeyPair(dirName string) (pub, priv string, err error) {
+	if err = os.MkdirAll(dirName, 0700); err != nil {
 		return
-	} else {
-		if err = os.MkdirAll(directory, 0755); err != nil {
-			return
-		}
 	}
 
 	var (
@@ -34,13 +30,15 @@ func CreateSSHKeyPair(directory string) (pub, priv string, err error) {
 		publicKey      ssh.PublicKey
 		pemBlock       *pem.Block
 		privateKeyFile *os.File
+		pubFileName    string = filepath.Join(dirName, "id_rsa.pub")
+		privFileName   string = filepath.Join(dirName, "id_rsa")
 	)
 
 	if privateKey, err = rsa.GenerateKey(rand.Reader, 4096); err != nil {
 		return
 	}
 
-	if privateKeyFile, err = os.Create(directory + "/id_rsa"); err != nil {
+	if privateKeyFile, err = os.Create(privFileName); err != nil {
 		return
 	}
 
@@ -63,15 +61,15 @@ func CreateSSHKeyPair(directory string) (pub, priv string, err error) {
 		return
 	}
 
-	if err = os.WriteFile(directory+"/id_rsa.pub", ssh.MarshalAuthorizedKey(publicKey), 0644); err != nil {
+	if err = os.WriteFile(pubFileName, ssh.MarshalAuthorizedKey(publicKey), 0644); err != nil {
 		return
 	}
 
-	if pub, err = readFileHelper(directory + "/id_rsa.pub"); err != nil {
+	if pub, err = readFileHelper(pubFileName); err != nil {
 		return
 	}
 
-	if priv, err = readFileHelper(directory + "/id_rsa"); err != nil {
+	if priv, err = readFileHelper(privFileName); err != nil {
 		return
 	}
 

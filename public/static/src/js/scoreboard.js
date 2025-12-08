@@ -4,6 +4,8 @@ const root = document.getElementById("scoreboard-root");
 const tabs = document.getElementById("scoreboard-tabs");
 const table = document.getElementById("scoreboard-table");
 const empty = document.getElementById("scoreboard-empty");
+const gridSection = document.getElementById("scoreboard-grid");
+const gridBody = gridSection?.querySelector("[data-grid]");
 const REFRESH_INTERVAL = 30_000;
 const dateFormatter = new Intl.DateTimeFormat(undefined, {
     dateStyle: "medium",
@@ -14,6 +16,195 @@ const state = {
     competitions: [],
     selected: root?.dataset.selected || "",
 };
+
+function computeTeamCheckSummary(team) {
+    const containers = Array.isArray(team?.containers) ? team.containers : [];
+    let total = 0;
+    let passed = 0;
+    containers.forEach((container) => {
+        (container.checks || []).forEach((check) => {
+            total += 1;
+            if (check?.passed) {
+                passed += 1;
+            }
+        });
+    });
+
+    const ratio = total > 0 ? passed / total : 0;
+    let status = "bg-slate-600/40 text-slate-200";
+    if (total === 0) {
+        status = "bg-slate-600/40 text-slate-200";
+    } else if (ratio >= 0.85) {
+        status = "bg-emerald-500/30 text-emerald-100";
+    } else if (ratio >= 0.6) {
+        status = "bg-yellow-500/30 text-yellow-900";
+    } else if (ratio >= 0.3) {
+        status = "bg-orange-500/30 text-orange-100";
+    } else {
+        status = "bg-rose-600/40 text-rose-100";
+    }
+
+    return { passed, total, ratio, status };
+}
+
+function renderRankingRow(team, index) {
+    const rowClass =
+        index === 0 ? "bg-white/10" : index % 2 === 0 ? "bg-white/[0.04]" : "bg-transparent";
+    const summary = computeTeamCheckSummary(team);
+    return `<tr class="${rowClass}">
+        <td class="px-2 py-1.5 text-xs font-semibold text-slate-200">#${index + 1}</td>
+        <td class="px-2 py-1.5">
+            <p class="text-white text-sm font-semibold">${escapeHTML(team.name)}</p>
+            <p class="text-[0.65rem] text-slate-400">Updated ${formatDate(team.lastUpdated)}</p>
+        </td>
+        <td class="px-2 py-1.5 text-right text-base font-bold text-white">${team.score}</td>
+        <td class="px-2 py-1.5 text-right">
+            <span class="inline-flex items-center rounded-lg px-2 py-0.5 text-[0.65rem] font-semibold ${summary.status}">
+                ${summary.passed}/${summary.total || 0} up
+            </span>
+        </td>
+    </tr>`;
+}
+
+function buildContainerMatrices(selected) {
+    if (!selected || !Array.isArray(selected.teams)) {
+        return [];
+    }
+
+    const containers = [];
+    const containerIndex = new Map();
+
+    const normalizeName = (value) => (value || "Container").toLowerCase();
+
+    const ensureContainer = (name, sourceChecks = []) => {
+        const normalized = normalizeName(name);
+        if (!containerIndex.has(normalized)) {
+            containerIndex.set(normalized, containers.length);
+            containers.push({
+                name: name || "Container",
+                normalized,
+                columns: sourceChecks.map((check) => ({
+                    id: check?.id || check?.name || "",
+                    name: check?.name || check?.id || "Service",
+                })),
+                rows: [],
+            });
+        } else if (sourceChecks.length) {
+            const entry = containers[containerIndex.get(normalized)];
+            sourceChecks.forEach((check) => {
+                const id = check?.id || check?.name || "";
+                if (!id) return;
+                if (!entry.columns.some((column) => column.id === id)) {
+                    entry.columns.push({
+                        id,
+                        name: check?.name || check?.id || "Service",
+                    });
+                }
+            });
+        }
+    };
+
+    selected.teams.forEach((team) => {
+        (team.containers || []).forEach((container) => {
+            ensureContainer(container?.name, Array.isArray(container?.checks) ? container.checks : []);
+        });
+    });
+
+    if (!containers.length) {
+        return [];
+    }
+
+    const sortedTeams = [...selected.teams].sort((a, b) => {
+        const nameA = (a?.name || "").toLowerCase();
+        const nameB = (b?.name || "").toLowerCase();
+        if (nameA === nameB) {
+            return 0;
+        }
+        return nameA < nameB ? -1 : 1;
+    });
+
+    sortedTeams.forEach((team, index) => {
+        containers.forEach((containerEntry) => {
+            const teamContainer = (team.containers || []).find(
+                (container) => normalizeName(container?.name) === containerEntry.normalized
+            );
+            const statusMap = new Map();
+            (teamContainer?.checks || []).forEach((check) => {
+                const id = check?.id || check?.name || "";
+                if (!id) return;
+                statusMap.set(id, Boolean(check?.passed));
+            });
+
+            containerEntry.rows.push({
+                team: team.name || `Team ${index + 1}`,
+                statuses: containerEntry.columns.map((column) => statusMap.get(column.id)),
+            });
+        });
+    });
+
+    return containers;
+}
+
+function renderMatrixTable(matrix, index = 0) {
+    const columns = matrix.columns;
+    const rows = matrix.rows;
+    const hasData = columns.length > 0;
+
+    if (!hasData) {
+        return `<div class="space-y-1 border-t border-white/5 pt-3">
+            <p class="text-sm font-semibold text-white">${escapeHTML(matrix.name)}</p>
+            <p class="text-xs text-slate-400">No services reported yet.</p>
+        </div>`;
+    }
+
+    const gridTemplate = `grid-template-columns: auto repeat(${columns.length}, minmax(5rem, 1fr));`;
+
+    const headerRow = `<div class="grid gap-1 text-[0.7rem] uppercase tracking-[0.2em] text-slate-300 pb-1 border-b border-white/10 mb-1"
+        style="${gridTemplate}">
+        ${index === 0 ? '<span>Team</span>' : '<span></span>'}
+        ${columns
+            .map(
+                (column) =>
+                    `<span class="text-center whitespace-nowrap">${escapeHTML(column.name)}</span>`
+            )
+            .join("")}
+    </div>`;
+
+    const body = rows
+        .map((row) => {
+            const cells = row.statuses
+                .map((status) => {
+                    let classes = "bg-white/5 text-slate-200 border-white/15";
+                    let label = "—";
+                    if (status === true) {
+                        classes = "bg-emerald-500/20 text-emerald-100 border-emerald-400/30";
+                        label = "Up";
+                    } else if (status === false) {
+                        classes = "bg-rose-500/25 text-rose-100 border-rose-400/30";
+                        label = "Down";
+                    }
+                    return `<span class="inline-flex w-full items-center justify-center rounded-xl border px-3 py-1 text-[0.7rem] font-semibold leading-tight ${classes}">${label}</span>`;
+                })
+                .join("");
+            return `<div class="grid items-center gap-1 text-[0.75rem]" style="${gridTemplate}">
+                <span class="truncate font-semibold text-white/90">${escapeHTML(row.team)}</span>
+                ${cells}
+            </div>`;
+        })
+        .join("");
+
+    const containerClass = index === 0 ? "pt-0" : "border-t border-white/5 pt-3";
+
+    return `<div class="space-y-1.5 ${containerClass}">
+        <div class="flex flex-wrap items-baseline gap-2 text-slate-300">
+            <p class="text-sm font-semibold text-white/90">${escapeHTML(matrix.name)}</p>
+        </div>
+        <div class="space-y-1">
+            ${headerRow}
+            <div class="space-y-1">${body}</div>
+        </div>
+    </div>`;
+}
 
 function formatDate(value) {
     if (!value) return "—";
@@ -58,34 +249,17 @@ function renderTable() {
     table.classList.remove("hidden");
 
     const rows = selected.teams.length
-        ? selected.teams
-              .map(
-                  (team, index) => `<tr class="${
-                      index === 0
-                          ? "bg-white/10"
-                          : index % 2 === 0
-                          ? "bg-white/[0.04]"
-                          : "bg-transparent"
-                  }">
-                    <td class="px-4 py-3 text-sm font-semibold text-slate-200">#${index + 1}</td>
-                    <td class="px-4 py-3">
-                        <p class="text-white font-semibold">${escapeHTML(team.name)}</p>
-                        <p class="text-xs text-slate-400">Updated ${formatDate(team.lastUpdated)}</p>
-                    </td>
-                    <td class="px-4 py-3 text-right text-lg font-bold text-white">${team.score}</td>
-                </tr>`
-              )
-              .join("")
-        : `<tr><td class="px-4 py-6 text-center text-slate-300" colspan="3">Scores are not ready yet.</td></tr>`;
+        ? selected.teams.map((team, index) => renderRankingRow(team, index)).join("")
+        : `<tr><td class="px-3 py-4 text-center text-slate-300" colspan="4">Scores are not ready yet.</td></tr>`;
 
-    table.innerHTML = `<div class="p-4 md:p-6 space-y-4">
+    table.innerHTML = `<div class="p-3 md:p-4 space-y-3 text-sm">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
                 <p class="text-xs uppercase tracking-[0.4em] text-slate-400">${selected.isPrivate ? "Private" : "Public"} event</p>
-                <h2 class="text-2xl font-semibold text-white">${escapeHTML(selected.name)}</h2>
-                <p class="text-sm text-slate-300">${escapeHTML(selected.description || "No description provided.")}</p>
+                <h2 class="text-xl font-semibold text-white">${escapeHTML(selected.name)}</h2>
+                <p class="text-xs text-slate-300">${escapeHTML(selected.description || "No description provided.")}</p>
             </div>
-            <div class="text-sm text-slate-300 text-right">
+            <div class="text-xs text-slate-300 text-right">
                 <p>${selected.teamCount} teams · ${selected.containerCount} containers</p>
                 <p>Host: ${escapeHTML(selected.host || "Unknown")}</p>
             </div>
@@ -94,9 +268,10 @@ function renderTable() {
             <table class="min-w-full text-left">
                 <thead>
                     <tr class="text-xs uppercase tracking-[0.3em] text-slate-400">
-                        <th class="px-4 py-2">Rank</th>
-                        <th class="px-4 py-2">Team</th>
-                        <th class="px-4 py-2 text-right">Score</th>
+                        <th class="px-2 py-1.5">Rank</th>
+                        <th class="px-2 py-1.5">Team</th>
+                        <th class="px-2 py-1.5 text-right">Score</th>
+                        <th class="px-2 py-1.5 text-right">Checks</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -104,7 +279,23 @@ function renderTable() {
                 </tbody>
             </table>
         </div>
+        <div class="space-y-2 mt-3">
+            ${renderGrid(selected)}
+        </div>
     </div>`;
+}
+
+function renderGrid(selected) {
+    if (!selected || !selected.teams.length) {
+        return "";
+    }
+
+    const matrices = buildContainerMatrices(selected);
+    if (!matrices.length) {
+        return "";
+    }
+
+    return matrices.map((matrix, index) => renderMatrixTable(matrix, index)).join("");
 }
 
 async function loadScoreboard() {

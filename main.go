@@ -4,6 +4,7 @@ import (
 	"github.com/UNHCSC/pve-koth/app"
 	"github.com/UNHCSC/pve-koth/config"
 	"github.com/UNHCSC/pve-koth/db"
+	"github.com/UNHCSC/pve-koth/koth"
 	"github.com/z46-dev/go-logger"
 )
 
@@ -21,6 +22,13 @@ func main() {
 		mainLog.Errorf("failed to initialize database: %v\n", err)
 		return
 	}
+
+	if err = koth.Init(); err != nil {
+		mainLog.Errorf("failed to initialize koth module: %v\n", err)
+		return
+	}
+
+	koth.StartScoringLoop()
 
 	mainLog.Errorf("fiber log: %v\n", app.StartApp())
 }

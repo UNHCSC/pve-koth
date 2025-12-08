@@ -9,7 +9,7 @@ import (
 
 	"github.com/UNHCSC/pve-koth/config"
 	"github.com/UNHCSC/pve-koth/proxmoxAPI"
-	"github.com/UNHCSC/pve-koth/sshcomm"
+	"github.com/UNHCSC/pve-koth/ssh"
 	"github.com/gofiber/fiber/v2"
 	"github.com/luthermonson/go-proxmox"
 )
@@ -109,12 +109,13 @@ func TestCreateAndSetUpContainer(t *testing.T) {
 
 	const CT_IP = "10.255.255.89"
 	var (
-		err                            error
-		exitCode                       int
-		pubKey, privKey, commandOutput string
-		api                            *proxmoxAPI.ProxmoxAPI
-		result                         *proxmoxAPI.ProxmoxAPICreateResult
-		conn                           *sshcomm.SSHConnection
+		err             error
+		exitCode        int
+		pubKey, privKey string
+		commandOutput   []byte
+		api             *proxmoxAPI.ProxmoxAPI
+		result          *proxmoxAPI.ProxmoxAPICreateResult
+		conn            *ssh.SSHConnection
 	)
 
 	defer func() {
@@ -149,7 +150,7 @@ func TestCreateAndSetUpContainer(t *testing.T) {
 	}
 
 	t.Log("Creating SSH key pair...")
-	if pubKey, privKey, err = sshcomm.CreateSSHKeyPair("tmpssh"); err != nil {
+	if pubKey, privKey, err = ssh.CreateSSHKeyPair("tmpssh"); err != nil {
 		t.Fatalf("failed to create SSH key pair: %v\n", err)
 		return
 	}
@@ -166,7 +167,7 @@ func TestCreateAndSetUpContainer(t *testing.T) {
 		StoragePool:      "laas",
 		Hostname:         "koth-test-ct",
 		RootPassword:     "password",
-		RootSSHPublicKey: pubKey,
+		RootSSHPublicKey: string(pubKey),
 		StorageSizeGB:    8,
 		MemoryMB:         512,
 		Cores:            1,
@@ -187,13 +188,13 @@ func TestCreateAndSetUpContainer(t *testing.T) {
 	}
 
 	t.Log("Waiting for container to come online...")
-	if err = sshcomm.WaitOnline(CT_IP); err != nil {
+	if err = ssh.WaitOnline(CT_IP); err != nil {
 		t.Fatalf("container did not come online in time: %v\n", err)
 		return
 	}
 
 	t.Log("Connecting via SSH...")
-	if conn, err = sshcomm.Connect("root", CT_IP, 22, sshcomm.WithPrivateKey([]byte(privKey))); err != nil {
+	if conn, err = ssh.Connect("root", CT_IP, 22, ssh.WithPrivateKey([]byte(privKey))); err != nil {
 		t.Fatalf("failed to connect via SSH: %v\n", err)
 		return
 	}
@@ -201,7 +202,7 @@ func TestCreateAndSetUpContainer(t *testing.T) {
 	var envs = map[string]any{
 		"KOTH_COMP_ID":               "testcomp",
 		"KOTH_ACCESS_TOKEN":          "test_token",
-		"KOTH_PUBLIC_FOLDER":         fmt.Sprintf("http://%s:%d/", sshcomm.MustLocalIP(), 8080),
+		"KOTH_PUBLIC_FOLDER":         fmt.Sprintf("http://%s:%d/", ssh.MustLocalIP(), 8080),
 		"KOTH_TEAM_ID":               "team1",
 		"KOTH_HOSTNAME":              "koth-test-ct",
 		"KOTH_IP":                    CT_IP,
@@ -212,7 +213,7 @@ func TestCreateAndSetUpContainer(t *testing.T) {
 	go helperSpinUpFileServer()
 
 	t.Log("Sending global setup script...")
-	if exitCode, commandOutput, err = conn.SendWithOutput(sshcomm.LoadAndRunScript(fmt.Sprintf("http://%s:%d/setup_global.sh", sshcomm.MustLocalIP(), 8080), "test_token", envs)); err != nil {
+	if exitCode, commandOutput, err = conn.SendWithOutput(ssh.LoadAndRunScript(fmt.Sprintf("http://%s:%d/setup_global.sh", ssh.MustLocalIP(), 8080), "test_token", envs)); err != nil {
 		t.Fatalf("failed to send global setup script: %v\n", err)
 		return
 	} else {
@@ -225,7 +226,7 @@ func TestCreateAndSetUpContainer(t *testing.T) {
 	}
 
 	t.Log("Sending grafana setup script...")
-	if exitCode, commandOutput, err = conn.SendWithOutput(sshcomm.LoadAndRunScript(fmt.Sprintf("http://%s:%d/setup_grafana.sh", sshcomm.MustLocalIP(), 8080), "test_token", envs)); err != nil {
+	if exitCode, commandOutput, err = conn.SendWithOutput(ssh.LoadAndRunScript(fmt.Sprintf("http://%s:%d/setup_grafana.sh", ssh.MustLocalIP(), 8080), "test_token", envs)); err != nil {
 		t.Fatalf("failed to send grafana setup script: %v\n", err)
 		return
 	} else {
@@ -240,7 +241,7 @@ func TestCreateAndSetUpContainer(t *testing.T) {
 	t.Log("---- Container is now set up; Beginning to Scoring Phase ----")
 
 	t.Log("Sending global scoring script...")
-	if exitCode, commandOutput, err = conn.SendWithOutput(sshcomm.LoadAndRunScript(fmt.Sprintf("http://%s:%d/score_global.sh", sshcomm.MustLocalIP(), 8080), "test_token", envs)); err != nil {
+	if exitCode, commandOutput, err = conn.SendWithOutput(ssh.LoadAndRunScript(fmt.Sprintf("http://%s:%d/score_global.sh", ssh.MustLocalIP(), 8080), "test_token", envs)); err != nil {
 		t.Fatalf("failed to send global scoring script: %v\n", err)
 		return
 	} else {
@@ -253,7 +254,7 @@ func TestCreateAndSetUpContainer(t *testing.T) {
 	}
 
 	t.Log("Sending grafana scoring script...")
-	if exitCode, commandOutput, err = conn.SendWithOutput(sshcomm.LoadAndRunScript(fmt.Sprintf("http://%s:%d/score_grafana.sh", sshcomm.MustLocalIP(), 8080), "test_token", envs)); err != nil {
+	if exitCode, commandOutput, err = conn.SendWithOutput(ssh.LoadAndRunScript(fmt.Sprintf("http://%s:%d/score_grafana.sh", ssh.MustLocalIP(), 8080), "test_token", envs)); err != nil {
 		t.Fatalf("failed to send grafana scoring script: %v\n", err)
 		return
 	} else {
@@ -346,7 +347,7 @@ func TestCTTemplateClone(t *testing.T) {
 		t.Logf("started cloned container with ID %d\n", newCT.VMID)
 	}
 
-	if err = sshcomm.WaitOnline("10.224.0.3"); err != nil {
+	if err = ssh.WaitOnline("10.224.0.3"); err != nil {
 		t.Errorf("cloned container did not come online in time: %v\n", err)
 	} else {
 		t.Logf("cloned container with ID %d is online\n", newCT.VMID)
@@ -393,7 +394,7 @@ func TestMassCTLifecycle(t *testing.T) {
 	}
 
 	var pubKey, privKey string
-	if pubKey, privKey, err = sshcomm.CreateSSHKeyPair("tmpssh"); err != nil {
+	if pubKey, privKey, err = ssh.CreateSSHKeyPair("tmpssh"); err != nil {
 		t.Fatalf("failed to create SSH key pair: %v\n", err)
 		return
 	}
@@ -453,14 +454,14 @@ func TestMassCTLifecycle(t *testing.T) {
 			}()
 
 			// Update package lists
-			var conn *sshcomm.SSHConnection
-			if conn, err = sshcomm.ConnectOnceReadyWithRetry("root", cfg.IPv4Address, 22, sshcomm.WithPrivateKey([]byte(privKey)), 10); err != nil {
+			var conn *ssh.SSHConnection
+			if conn, err = ssh.ConnectOnceReadyWithRetry("root", cfg.IPv4Address, 22, 10, ssh.WithPrivateKey([]byte(privKey))); err != nil {
 				t.Errorf("failed to connect to container %d via SSH w/ Retries: %v\n", res.CTID, err)
 			} else {
 				defer conn.Close()
 				var (
 					exitCode int
-					output   string
+					output   []byte
 				)
 
 				// if exitCode, _, err = conn.SendWithOutput("apt-get update"); err != nil {
@@ -503,7 +504,7 @@ func TestMassCTLifecycle(t *testing.T) {
 					t.Errorf("failed to send 'uname -a' to container %d: %v\n", res.CTID, err)
 				} else if exitCode != 0 {
 					t.Logf("'whoami' on container %d exited with code %d\n", res.CTID, exitCode)
-				} else if strings.TrimSpace(output) != "root" {
+				} else if strings.TrimSpace(string(output)) != "root" {
 					t.Errorf("unexpected output from 'whoami' on container %d: %s\n", res.CTID, output)
 				}
 			}

@@ -48,7 +48,7 @@ Here's a minimal example of a `config.json` file to create a competition with on
     "numTeams": 4,
     "privacy": {
         "public": true,
-        "LDAPAllowedGroupsFilter": ""
+        "ldapAllowedGroupsFilter": []
     },
     "containerSpecs": {
         "templatePath": "local:vztmpl/ubuntu-25.04-standard.tar.zst",
@@ -58,7 +58,7 @@ Here's a minimal example of a `config.json` file to create a competition with on
         "memoryMB": 1024,
         "cores": 1,
         "gatewayIPv4": "10.0.0.1",
-        "cidrBlock": "8",
+        "cidrBlock": 8,
         "nameServerIPv4": "10.0.0.2",
         "searchDomain": "cyber.lab"
     },
@@ -108,7 +108,7 @@ As an explanation of the fields:
 - `competitionHost`: The name of the host or organization running the competition.
 - `privacy`: Settings for competition visibility and LDAP group restrictions.
     - `public`: If true, the competition is visible to all users. If false, only users in specified LDAP groups can access it.
-    - `LDAPAllowedGroupsFilter`: An LDAP filter string to specify which groups can access the competition (e.g., `(memberOf=cn=cybersec,ou=Groups,dc=example,dc=com)`).
+    - `ldapAllowedGroupsFilter`: An array of LDAP group names that are allowed to view the competition when it is private (e.g., `["cn=cybersec,ou=Groups,dc=example,dc=com"]`).
 - `containerSpecs`: Default specifications for the containers to be created for each team.
     - `templatePath`: The Proxmox template to use for the containers.
     - `storagePool`: The Proxmox storage pool where the container's disk will be created.
@@ -134,6 +134,14 @@ As an explanation of the fields:
 - `setupPublicFolder`: The path to the folder containing public files to be served to the containers when setup scripts are running.
 - `writeupFilePath`: The path to the competition writeup file (PDF or Markdown) that will be publicly available for competition members to view.
 
+### Network Allocation
+
+The server hands out networks to competitions automatically. Configure the `[network]` section in `config.toml` to describe the IPv4 pool that Proxmox containers should live in. The pool must be at least a `/16`, and each competition currently receives a dedicated `/16` which is then subdivided into `/24`s for the teams inside that competition. Containers themselves are provisioned with the `/8` mask defined by `container_cidr` to keep routing simple across nodes. If the configured pool can't provide at least a `/16`, the server will refuse to boot.
+
+### Public URL
+
+Containers need a stable way to reach the KOTH panel in order to download scripts and public files. Set `public_url` inside the `[web_server]` block when the application is exposed through a hostname (for example `https://koth.cyber.lab`). If it is omitted, the server falls back to its local IP address combined with the configured listen port.
+
 ## Scoring
 
 Scoring live containers that are constantly being changed by attackers and defenders is a difficult task. The goal of the scoring system is to be as fair and accurate as possible, while also being easy to understand and implement for competition organizers.
@@ -146,27 +154,36 @@ The scoring system is based on the concept of "checks". Each container can have 
 
 ### Scoring Script Output
 
-Scoring scripts' exit status and output DO matter. The exit status should be `0` for success and non-zero for failure. The output of the script on a success should be **only** a JSON object with the following structure:
+Scoring scripts' exit status and output DO matter. The exit status should be `0` for success and non-zero for failure. The output of the script on a success should be **only** a JSON object where each property corresponds to the `id` of a check defined in the `scoringSchema` array inside `config.json`:
 
 ```json
 {
-    "score": 123,
-    "checks": {
-        "ping": true,
-        "nginx": false,
-        "content": true
-    }
+    "ping": true,
+    "nginx": false,
+    "content": true
 }
 ```
 
-- `score`: The total score for the container, which is the sum of all pass and fail points for each check.
-- `checks`: An object where each key is the ID of a check defined in the `scoringSchema` array in the `config.json` file, and the value is a boolean indicating whether the check passed or failed for display on the scoreboard.
+- Each property name must exactly match a check ID from the `scoringSchema`.
+- Each property value must be a boolean (`true` = pass, `false` = fail). The scoring engine automatically applies the configured `passPoints` or `failPoints` when it sees those results.
 
 Yes, it can be annoying to construct JSON output in bash scripts, but it makes the scoring system much more robust and easier to understand, as well as allowing for efficient collection and aggregation of multiple check scripts on a container in a scoring loop.
 
 If a scoring script fails (non-zero exit status) or does not output valid JSON, the scoring engine will assume that all checks failed and award the fail points for each check.
 
 > Note that a script "failing" means that the execution of your commands in the script has just failed. If a check fails as "incorrect" or "false", that is not a script failure, but rather a check failure, and the script should still exit with a status of `0` and output the JSON object with the check result as `false`.
+
+### Background Scoring Loop
+
+The server automatically scores every active competition once per minute. Each run:
+
+- Loads the competition's configuration from the uploaded package and rebuilds the expected network layout for each team.
+- Connects to every provisioned container in parallel per competition using the private SSH key that was generated during provisioning.
+- Executes the configured scoring scripts in order, supplying the same `KOTH_*` environment variables that setup scripts receive (including `KOTH_ACCESS_TOKEN` and public folder URLs).
+- Applies pass/fail points for every check reported by scoring scripts. If any script fails to run, omits a check, or returns invalid JSON, the missing checks in that container's `scoringSchema` automatically receive their configured fail points.
+- Updates each team's score and `lastUpdated` timestamp in the database so the public scoreboard can refresh immediately.
+
+Because each competition is processed concurrently, large events continue to score without blocking one another. If a container is offline or SSH authentication fails, its checks are treated as failed for that round, which matches the behavior described above.
 
 ## Scripting
 
@@ -201,12 +218,16 @@ The following environment variables will be set for each script execution:
 
 - `KOTH_COMP_ID`: The competition ID from `config.json`.
 - `KOTH_ACCESS_TOKEN`: The unique access token that is valid through the execution of the script which allows you to make requests to the web server for files in the public folder.
-- `KOTH_PUBLIC_FOLDER`: The full HTTP path for the public folder for this competition.
+- `KOTH_PUBLIC_FOLDER`: The full HTTP path for the public folder for this competition (points at `/api/competitions/<id>/public/<setupPublicFolder>`).
 - `KOTH_TEAM_ID`: The team ID of the current team
 - `KOTH_HOSTNAME`: The hostname of the container.
 - `KOTH_IP`: The IPv4 address of the container.
 - `KOTH_CONTAINER_IPS_*`: A set of variables for every container in the team, where `*` is replaced with the configured name for that container. The value is the IPv4 address of that container.
 - `KOTH_CONTAINER_IPS`: A comma-separated list of all container IPv4 addresses for the team.
+
+### Serving Public Files
+
+Every file extracted from the competition package lives in the stored package directory (by default `<storage_base>/packages/<competitionID>-<timestamp>/...`). Only the folder referenced by `setupPublicFolder` is served to competitors at `GET /api/competitions/<competitionID>/public/*`. Setup scripts should download their payloads by referencing `$KOTH_PUBLIC_FOLDER`, for example `wget "$KOTH_PUBLIC_FOLDER/website.tar.gz" -O /tmp/website.tar.gz`. All requests **must** include the `Authorization` cookie set to the value of `KOTH_ACCESS_TOKEN`, which is injected by the provisioning system and expires after the script completes.
 
 ### Setup Scripts
 
@@ -321,31 +342,23 @@ In our example above, we have two scoring scripts: `scripts/score_global.sh` and
 ```bash
 #!/bin/bash
 
-SCORE=0
 CHECK_icmp=false
 CHECK_exporter=false
 
 # Container Can be Pinged? +1, -0
 if ping -c 1 -W 1 "$KOTH_IP" &> /dev/null; then
     CHECK_icmp=true
-    SCORE=$((SCORE + 1))
 fi
 
 # Prometheus Exporter Running? +1, -1
 if curl -s --max-time 2 "http://$KOTH_IP:9100/metrics" | grep -q "Processor"; then
     CHECK_exporter=true
-    SCORE=$((SCORE + 1))
-else
-    SCORE=$((SCORE - 1))
 fi
 
 # Now give the data out as JSON
 echo "{
-    \"score\": $SCORE,
-    \"checks\": {
-        \"icmp\": $CHECK_icmp,
-        \"exporter\": $CHECK_exporter
-    }
+    \"icmp\": $CHECK_icmp,
+    \"exporter\": $CHECK_exporter
 }"
 ```
 
@@ -354,33 +367,23 @@ echo "{
 ```bash
 #!/bin/bash
 
-SCORE=0
 CHECK_nginx=false
 CHECK_content=false
 
 # Nginx service running? +3, -1
 if systemctl is-active --quiet nginx; then
     CHECK_nginx=true
-    SCORE=$((SCORE + 3))
-else
-    SCORE=$((SCORE - 1))
 fi
 
 # Correct webpage content? +2, -2
 if curl -s --max-time 2 "http://$KOTH_IP" | grep -q "Placebo Banking"; then
     CHECK_content=true
-    SCORE=$((SCORE + 2))
-else
-    SCORE=$((SCORE - 2))
 fi
 
 # Now give the data out as JSON
 echo "{
-    \"score\": $SCORE,
-    \"checks\": {
-        \"nginx\": $CHECK_nginx,
-        \"content\": $CHECK_content
-    }
+    \"nginx\": $CHECK_nginx,
+    \"content\": $CHECK_content
 }"
 ```
 
@@ -408,3 +411,13 @@ npm run devel        # watch Tailwind + Webpack during development
 ```
 
 Built assets are written to `public/static/build` and served automatically by Fiber.
+
+## Competition Teardown
+
+Administrators can tear down an entire competition environment (containers, SSH keys, and database records) via:
+
+```
+POST /api/competitions/:competitionID/teardown
+```
+
+This endpoint requires an authenticated admin session. The server stops and deletes every container recorded for the competition, removes the team/container rows from the database, and deletes the data directory under `koth_live_data/competitions/<competitionID>`. Uploaded packages remain untouched so the event can be reprovisioned later if needed.

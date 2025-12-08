@@ -1,21 +1,6 @@
-<div id="scoreboard-root" data-selected="{{.SelectedCompetitionID}}" class="space-y-8">
-    <section class="glass-panel rounded-3xl border border-white/10 p-6 sm:p-8">
-        <div class="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-            <div class="text-center md:text-left">
-                <p class="text-xs uppercase tracking-[0.4em] text-slate-400">Live rankings</p>
-                <h1 class="text-3xl font-bold text-white">Competition Scoreboard</h1>
-                <p class="text-slate-300">Select a competition to reveal the top performers. Private events appear if
-                    you're authorized through LDAP.</p>
-            </div>
-            <div class="text-center md:text-right text-sm">
-                <p class="text-xs text-slate-400">Auto-refreshing every 30s</p>
-                <p class="font-semibold text-white">Data sourced directly from scoring engines.</p>
-            </div>
-        </div>
-    </section>
-
-    <section class="rounded-3xl border border-white/10 bg-slate-900/60 p-4 sm:p-6">
-        <div class="flex items-center gap-3 mb-6 overflow-x-auto pb-2" id="scoreboard-tabs"></div>
+<div id="scoreboard-root" data-selected="{{.SelectedCompetitionID}}" class="space-y-6">
+    <section class="rounded-3xl border border-white/10 bg-slate-900/60 p-4 sm:p-6 space-y-6">
+        <div class="flex items-center gap-3 overflow-x-auto pb-2" id="scoreboard-tabs"></div>
         <div id="scoreboard-empty" class="text-slate-300 text-sm text-center py-12 hidden">
             No competitions are available yet.
         </div>

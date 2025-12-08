@@ -2,8 +2,10 @@ package config
 
 import (
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/BurntSushi/toml"
 	"github.com/creasty/defaults"
@@ -16,6 +18,7 @@ type Configuration struct {
 		TLSDir                      string   `toml:"tls_dir" default:""`                                              // Directory containing a crt and a key file for TLS. Leave empty to use HTTP instead of HTTPS.
 		ReloadTemplatesOnEachRender bool     `toml:"reload_templates_on_each_render" default:"false"`                 // For development purposes. If true, templates are reloaded from disk on each render.
 		RedirectServerAddresses     []string `toml:"redirect_server_addresses" default:"[]" validate:"dive,required"` // List of addresses ("host:port" or ":port") to which HTTP requests should be redirected to HTTPS. If your web app is on ":443", you might want to redirect ":80" here.
+		PublicURL                   string   `toml:"public_url" default:""`                                           // Optional externally reachable base URL used inside containers (e.g. "https://koth.cyber.lab")
 	} `toml:"web_server"` // Web server configuration
 
 	Database struct {
@@ -39,9 +42,82 @@ type Configuration struct {
 		TokenID  string `toml:"token_id" default:"" validate:"required"`              // Proxmox VE API token ID (e.g. "laas-api-token-id")
 		Secret   string `toml:"secret" default:"" validate:"required"`                // Proxmox VE API token secret
 	} `toml:"proxmox"` // Proxmox VE integration configuration
+
+	Storage struct {
+		BasePath string `toml:"base_path" default:"./koth_live_data" validate:"required"` // Root directory where uploaded competition packages are stored
+	} `toml:"storage"`
+
+	Network NetworkConfig `toml:"network"`
 }
 
 var Config Configuration
+
+type NetworkConfig struct {
+	PoolCIDR                string `toml:"pool_cidr" default:"10.0.0.0/8" validate:"required"`
+	CompetitionSubnetPrefix int    `toml:"competition_subnet_prefix" default:"16" validate:"min=8,max=30"`
+	TeamSubnetPrefix        int    `toml:"team_subnet_prefix" default:"24" validate:"min=8,max=30"`
+	ContainerCIDR           int    `toml:"container_cidr" default:"8" validate:"min=1,max=30"`
+
+	parsedPool *net.IPNet `toml:"-"`
+}
+
+func (n *NetworkConfig) initialize() error {
+	if n == nil {
+		return fmt.Errorf("network configuration missing")
+	}
+
+	var (
+		err error
+		ip  net.IP
+	)
+
+	if ip, n.parsedPool, err = net.ParseCIDR(n.PoolCIDR); err != nil {
+		return fmt.Errorf("invalid pool_cidr %q: %w", n.PoolCIDR, err)
+	}
+
+	if ip.To4() == nil {
+		return fmt.Errorf("pool_cidr must be an IPv4 network")
+	}
+
+	maskOnes, maskBits := n.parsedPool.Mask.Size()
+	if maskBits != 32 {
+		return fmt.Errorf("pool_cidr must be an IPv4 network")
+	}
+
+	if maskOnes > 16 {
+		return fmt.Errorf("pool_cidr %s is smaller than /16 and cannot supply competition networks", n.PoolCIDR)
+	}
+
+	if n.CompetitionSubnetPrefix != 16 {
+		return fmt.Errorf("competition_subnet_prefix must currently be 16")
+	}
+
+	if n.CompetitionSubnetPrefix < maskOnes {
+		return fmt.Errorf("competition_subnet_prefix (/ %d) must be equal to or larger than pool prefix (/ %d)", n.CompetitionSubnetPrefix, maskOnes)
+	}
+
+	if n.TeamSubnetPrefix < n.CompetitionSubnetPrefix {
+		return fmt.Errorf("team_subnet_prefix (/ %d) must be larger than competition subnet (/ %d)", n.TeamSubnetPrefix, n.CompetitionSubnetPrefix)
+	}
+
+	if n.ContainerCIDR > n.CompetitionSubnetPrefix {
+		return fmt.Errorf("container_cidr (/ %d) must be less specific than competition subnet (/ %d)", n.ContainerCIDR, n.CompetitionSubnetPrefix)
+	}
+
+	// Canonicalize stored IP reference
+	n.parsedPool.IP = ip.To4()
+	return nil
+}
+
+func (n *NetworkConfig) ParsedPool() *net.IPNet {
+	if n == nil || n.parsedPool == nil {
+		return nil
+	}
+
+	var clone = *n.parsedPool
+	clone.IP = append(net.IP(nil), n.parsedPool.IP...)
+	return &clone
+}
 
 func loadConfig(path string) (err error) {
 	// Apply struct defaults BEFORE loading TOML (so TOML overrides)
@@ -59,6 +135,11 @@ func loadConfig(path string) (err error) {
 	// Validate required fields
 	if err = validator.New(validator.WithRequiredStructEnabled()).Struct(Config); err != nil {
 		err = fmt.Errorf("validate config: %w", err)
+		return
+	}
+
+	if err = Config.Network.initialize(); err != nil {
+		err = fmt.Errorf("network config: %w", err)
 	}
 
 	return
@@ -120,4 +201,12 @@ func Init(path string) (err error) {
 	}
 
 	return nil
+}
+
+func StorageBasePath() string {
+	var base = strings.TrimSpace(Config.Storage.BasePath)
+	if base == "" {
+		base = "./koth_live_data"
+	}
+	return base
 }

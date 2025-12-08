@@ -41,111 +41,63 @@
                 class="self-start sm:self-auto text-xs uppercase tracking-[0.3em] text-white/70 hover:text-white">Refresh</button>
         </div>
         <div id="empty" class="hidden text-slate-400 text-sm py-6 text-center">No competitions yet.</div>
-        <ul id="comps" class="space-y-4"></ul>
+        <ul id="comps" class="space-y-4" data-can-manage="{{if .CanManage}}true{{else}}false{{end}}"></ul>
     </section>
 </div>
 
 {{if .CanManage}}
 <div id="create-modal" class="hidden fixed inset-0 z-50">
-    <div id="create-overlay" class="absolute inset-0 bg-black/50 backdrop-blur-sm"></div>
+    <div id="create-overlay" class="absolute inset-0 bg-black/80 backdrop-blur-sm"></div>
     <div class="relative z-10 min-h-screen w-full flex items-center justify-center p-4">
-        <div class="w-full max-w-3xl bg-white rounded-2xl shadow-2xl border border-gray-200">
-            <div class="flex items-center justify-between px-6 py-4 border-b border-gray-200 bg-gray-50 rounded-t-2xl">
-                <h3 class="text-lg font-semibold text-gray-900">Create Competition</h3>
+        <div class="w-full max-w-3xl rounded-3xl border border-white/10 bg-slate-900 shadow-2xl shadow-black/30 max-h-[90vh] flex flex-col overflow-hidden">
+            <div class="flex items-center justify-between px-6 py-4 border-b border-white/10 bg-slate-900 flex-shrink-0">
+                <h3 class="text-lg font-semibold text-white">Create Competition</h3>
                 <button id="close-create"
-                    class="text-gray-500 hover:text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-400 rounded">&times;</button>
+                    class="text-slate-400 hover:text-white focus:outline-none focus:ring-2 focus:ring-blue-400 rounded">&times;</button>
             </div>
-            <div class="p-6">
-                <form id="create-comp" class="grid md:grid-cols-2 gap-5" action="javascript:void(0);">
+            <div class="p-6 space-y-6 text-slate-100 flex-1 overflow-y-auto min-h-0">
+                <form id="create-comp" class="space-y-6" action="javascript:void(0);" enctype="multipart/form-data">
                     <div>
-                        <label for="comp-name" class="block text-sm font-medium text-gray-900">Name</label>
-                        <input id="comp-name" name="name" required
-                            class="mt-1 block w-full border border-gray-300 rounded-lg shadow-sm py-2.5 px-3 text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-400"
-                            placeholder="Spring KOTH 2026" />
-                    </div>
-                    <div>
-                        <label for="comp-private" class="block text-sm font-medium text-gray-900">Visibility</label>
-                        <select id="comp-private" name="isPrivate"
-                            class="mt-1 block w-full border border-gray-300 rounded-lg shadow-sm py-2.5 px-3 text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-400">
-                            <option value="0">Public</option>
-                            <option value="1">Private (restricted LDAP)</option>
-                        </select>
-                    </div>
-                    <div class="hidden md:col-span-2" id="ldap-groups-div">
-                        <label for="comp-groups" class="block text-sm font-medium text-gray-900">Allowed LDAP Groups
-                            (comma-separated)</label>
-                        <input id="comp-groups" name="groups"
-                            class="mt-1 block w-full border border-gray-300 rounded-lg shadow-sm py-2.5 px-3 text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-400"
-                            placeholder="cn=admins,cn=accounts,dc=cyber,dc=lab" />
-                    </div>
-                    <div class="md:col-span-2">
-                        <details class="rounded-lg border border-gray-200">
-                            <summary class="px-3 py-2 cursor-pointer font-medium select-none text-gray-900 bg-white rounded-lg">
-                                Container Defaults
-                            </summary>
-                            <div class="grid md:grid-cols-3 gap-5 p-4">
-                                <div>
-                                    <label for="hostnamePrefix" class="block text-sm font-medium text-gray-900 mb-1">Hostname
-                                        Prefix</label>
-                                    <input id="hostnamePrefix" name="hostnamePrefix" placeholder="unique-prefix"
-                                        class="w-full border border-gray-300 rounded-md shadow-sm p-2.5 text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-400" />
-                                </div>
-                                <div>
-                                    <label for="template" class="block text-sm font-medium text-gray-900 mb-1">CT Template</label>
-                                    <input id="template" name="template" value="local:vztmpl/ubuntu-25.04-standard.tar.zst"
-                                        class="w-full border border-gray-300 rounded-md shadow-sm p-2.5 text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-400" />
-                                </div>
-                                <div>
-                                    <label for="storagePool" class="block text-sm font-medium text-gray-900 mb-1">Storage Pool</label>
-                                    <input id="storagePool" name="storagePool" value="Storage"
-                                        class="w-full border border-gray-300 rounded-md shadow-sm p-2.5 text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-400" />
-                                </div>
-                                <div>
-                                    <label for="gatewayIPv4" class="block text-sm font-medium text-gray-900 mb-1">Gateway IPv4</label>
-                                    <input id="gatewayIPv4" name="gatewayIPv4" value="10.0.0.1"
-                                        class="w-full border border-gray-300 rounded-md shadow-sm p-2.5 text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-400" />
-                                </div>
-                                <div>
-                                    <label for="nameserver" class="block text-sm font-medium text-gray-900 mb-1">Nameserver</label>
-                                    <input id="nameserver" name="nameserver" value="10.0.0.2"
-                                        class="w-full border border-gray-300 rounded-md shadow-sm p-2.5 text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-400" />
-                                </div>
-                                <div>
-                                    <label for="searchDomain" class="block text-sm font-medium text-gray-900 mb-1">Search Domain</label>
-                                    <input id="searchDomain" name="searchDomain" value="cyber.lab"
-                                        class="w-full border border-gray-300 rounded-md shadow-sm p-2.5 text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-400" />
-                                </div>
-                                <div>
-                                    <label for="storageGB" class="block text-sm font-medium text-gray-900 mb-1">Storage (GB)</label>
-                                    <input id="storageGB" name="storageGB" type="number" value="8" min="4" max="24"
-                                        class="w-full border border-gray-300 rounded-md shadow-sm p-2.5 text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-400" />
-                                </div>
-                                <div>
-                                    <label for="memoryMB" class="block text-sm font-medium text-gray-900 mb-1">Memory (MB)</label>
-                                    <input id="memoryMB" name="memoryMB" type="number" value="512" min="128" max="4096"
-                                        class="w-full border border-gray-300 rounded-md shadow-sm p-2.5 text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-400" />
-                                </div>
-                                <div>
-                                    <label for="cores" class="block text-sm font-medium text-gray-900 mb-1">CPU Cores</label>
-                                    <input id="cores" name="cores" type="number" value="1" min="1" max="8"
-                                        class="w-full border border-gray-300 rounded-md shadow-sm p-2.5 text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-400" />
-                                </div>
-                                <div>
-                                    <label for="individualCIDR" class="block text-sm font-medium text-gray-900 mb-1">CIDR Block</label>
-                                    <input id="individualCIDR" name="individualCIDR" type="number" value="8" min="8" max="32"
-                                        class="w-full border border-gray-300 rounded-md shadow-sm p-2.5 text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-400" />
-                                </div>
+                        <label for="package-file" class="block text-sm font-medium text-slate-200">Competition package (.zip)</label>
+                        <div id="package-dropzone"
+                            class="mt-2 flex flex-col items-center justify-center gap-3 rounded-2xl border border-dashed border-white/20 bg-slate-800 px-4 py-8 text-center text-slate-300 transition-all">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-10 w-10 text-gray-400" fill="none" viewBox="0 0 24 24"
+                                stroke="currentColor" stroke-width="1.5">
+                                <path stroke-linecap="round" stroke-linejoin="round"
+                                    d="M3 15.75V18a2.25 2.25 0 002.25 2.25h13.5A2.25 2.25 0 0021 18v-2.25m-9-9v9m0-9l-3 3m3-3l3 3M3.375 9h17.25" />
+                            </svg>
+                            <div>
+                                <p class="text-sm font-semibold text-white">Drop your <code>competition.zip</code> here</p>
+                                <p class="text-xs text-slate-400">or</p>
                             </div>
-                        </details>
+                            <button type="button" id="package-browse"
+                                class="rounded-full bg-blue-600/90 px-4 py-2 text-sm font-medium text-white hover:bg-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-300">
+                                Browse files
+                            </button>
+                            <input id="package-file" name="file" type="file" accept=".zip,application/zip,application/x-zip-compressed"
+                                class="hidden" />
+                        </div>
+                        <p class="mt-2 text-sm text-slate-400">Follow the structure shown in the README when building your
+                            competition archive.</p>
                     </div>
-                    <div class="md:col-span-2 flex items-center justify-end gap-3">
+                    <div id="package-summary"
+                        class="hidden rounded-2xl border border-white/10 bg-slate-900/80 p-4 text-sm text-slate-200 shadow-inner shadow-black/10">
+                        <p class="flex items-center justify-between"><span class="font-medium">File</span><span
+                                data-field="name">None selected</span></p>
+                        <p class="flex items-center justify-between"><span class="font-medium">Size</span><span
+                                data-field="size">0 B</span></p>
+                        <p class="flex items-center justify-between"><span class="font-medium">Status</span><span
+                                data-field="status" class="text-slate-300">Waiting for upload</span></p>
+                    </div>
+                    <div class="flex items-center justify-end gap-3">
                         <button id="cancel-create" type="button"
-                            class="px-4 py-2 rounded-lg bg-gray-100 text-gray-800 hover:bg-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-400">Cancel</button>
-                        <button type="submit"
-                            class="px-4 py-2 rounded-lg bg-blue-600 text-white font-medium hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-400">Create</button>
+                            class="px-4 py-2 rounded-lg bg-white/10 text-white hover:bg-white/20 focus:outline-none focus:ring-2 focus:ring-blue-300">Cancel</button>
+                        <button type="submit" id="upload-package"
+                            class="px-4 py-2 rounded-lg bg-blue-500 text-white font-medium hover:bg-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-200">Upload
+                            package</button>
                     </div>
                 </form>
-                <pre id="create-log" class="hidden mt-4 p-3 bg-black text-green-200 rounded-lg h-48 overflow-auto text-sm"></pre>
+                <pre id="create-log" class="hidden mt-4 p-3 bg-slate-950 text-emerald-200 rounded-lg border border-white/10 max-h-48 overflow-auto text-sm w-full"></pre>
             </div>
         </div>
     </div>

@@ -1,8 +1,20 @@
-*.env
-*.db
+# Ignore the config file (secrets)
 config.toml
 
+# Ignore database files
+*.db
+
+# Ignore dependency directories and lock files
 node_modules
 package-lock.json
 
+# Ignore Go build artifacts and caches
+bin/
+.cache
+.gocache
+
+# Uploaded/live competition data
+koth_live_data/
+
+# Ignore compiled/web stuff
 build

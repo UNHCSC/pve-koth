@@ -1,7 +1,6 @@
 package koth
 
 import (
-	"bytes"
 	"fmt"
 	"net"
 	"net/url"
@@ -17,8 +16,6 @@ import (
 	"github.com/UNHCSC/pve-koth/proxmoxAPI"
 	"github.com/UNHCSC/pve-koth/ssh"
 	"github.com/z46-dev/go-logger"
-
-	sshpackage "golang.org/x/crypto/ssh"
 )
 
 var (
@@ -41,6 +38,7 @@ type containerPlan struct {
 	team          *db.Team
 	name          string
 	sanitizedName string
+	order         int
 	ipAddress     string
 	setupScripts  []string
 	options       *proxmoxAPI.ContainerCreateOptions
@@ -226,7 +224,7 @@ func CreateNewCompWithLogger(request *db.CreateCompetitionRequest, logSink Progr
 			return
 		}
 
-		for _, templateCfg := range request.TeamContainerConfigs {
+		for templateOrder, templateCfg := range request.TeamContainerConfigs {
 			var hostIP net.IP
 			if hostIP, err = hostIPWithinSubnet(teamSubnetBase, config.Config.Network.TeamSubnetPrefix, templateCfg.LastOctetValue); err != nil {
 				localLog.Errorf("Failed to allocate container IP for %s (team %d): %v\n", templateCfg.Name, teamIndex+1, err)
@@ -241,6 +239,7 @@ func CreateNewCompWithLogger(request *db.CreateCompetitionRequest, logSink Progr
 				team:          team,
 				name:          templateCfg.Name,
 				sanitizedName: sanitizedName,
+				order:         templateOrder,
 				ipAddress:     hostIP.String(),
 				setupScripts:  append([]string(nil), templateCfg.SetupScript...),
 				options: &proxmoxAPI.ContainerCreateOptions{
@@ -281,8 +280,7 @@ func CreateNewCompWithLogger(request *db.CreateCompetitionRequest, logSink Progr
 	}()
 
 	var (
-		publicBaseURL   = buildCompetitionPublicBase(externalBaseURL(), comp.SystemID)
-		publicFolderURL = buildPublicFolderURL(publicBaseURL, comp.SetupPublicFolder)
+		publicFolderURL = buildCompetitionPublicBase(externalBaseURL(), comp.SystemID)
 		artifactBaseURL = buildCompetitionArtifactBase(externalBaseURL(), comp.SystemID)
 	)
 
@@ -314,53 +312,17 @@ func CreateNewCompWithLogger(request *db.CreateCompetitionRequest, logSink Progr
 		}
 
 		var conn *ssh.SSHConnection
-		var connErr error
-		var connectedWithPassword bool
-		var authAttempts [][]sshpackage.AuthMethod
 
-		if request.ContainerSpecs.RootPassword != "" {
-			authAttempts = append(authAttempts, []sshpackage.AuthMethod{
-				ssh.WithPassword(request.ContainerSpecs.RootPassword),
-				ssh.WithKeyboardInteractivePassword(request.ContainerSpecs.RootPassword),
-			})
-		}
-
-		authAttempts = append(authAttempts, []sshpackage.AuthMethod{ssh.WithPrivateKey([]byte(privateKey))})
-
-		for attemptIdx, methods := range authAttempts {
-			if conn, connErr = ssh.ConnectOnceReadyWithRetry("root", plan.ipAddress, 22, 5, methods...); connErr == nil {
-				connectedWithPassword = (attemptIdx == 0 && request.ContainerSpecs.RootPassword != "")
-				break
-			}
-
-			localLog.Errorf("SSH attempt %d for %s failed: %v\n", attemptIdx+1, plan.options.Hostname, connErr)
-		}
-
-		if connErr != nil {
-			localLog.Errorf("Failed to connect to container %d (%s) via SSH: %v\n", createResult.CTID, plan.ipAddress, connErr)
-			return
-		}
-
-		if err = ensureAuthorizedKey(conn, publicKey); err != nil {
-			conn.Close()
-			localLog.Errorf("Failed to install SSH key on container %d (%s): %v\n", createResult.CTID, plan.ipAddress, err)
-			return
-		}
-
-		if connectedWithPassword {
-			conn.Close()
-			if conn, err = ssh.ConnectOnceReadyWithRetry("root", plan.ipAddress, 22, 5, ssh.WithPrivateKey([]byte(privateKey))); err != nil {
-				localLog.Errorf("Failed to reconnect to container %d (%s) via SSH key: %v\n", createResult.CTID, plan.ipAddress, err)
-				return
-			}
+		if conn, err = ssh.ConnectOnceReadyWithRetry("root", plan.ipAddress, 22, 5, ssh.WithPrivateKey([]byte(privateKey))); err != nil {
+			localLog.Errorf("Failed to connect to container %d via SSH: %v\n", createResult.CTID, err)
+			break
+		} else {
+			defer conn.Close()
 		}
 
 		if err = runSetupScripts(localLog, conn, comp, plan, teamNetworks[plan.team.ID], publicFolderURL, artifactBaseURL); err != nil {
-			conn.Close()
 			return
 		}
-
-		conn.Close()
 
 		if err = recordProvisionedContainer(comp, plan.team, createResult, plan.ipAddress); err != nil {
 			localLog.Errorf("Failed to record container %d: %v\n", createResult.CTID, err)
@@ -380,36 +342,6 @@ func CreateNewCompWithLogger(request *db.CreateCompetitionRequest, logSink Progr
 
 	localLog.Successf("Successfully created competition: %s\n", request.CompetitionName)
 	return
-}
-
-func ensureAuthorizedKey(conn *ssh.SSHConnection, key string) (err error) {
-	key = strings.TrimSpace(key)
-	if key == "" {
-		return fmt.Errorf("empty SSH public key")
-	}
-
-	var escaped = escapeForSingleQuotes(key)
-	var command = fmt.Sprintf("install -m 700 -d /root/.ssh && touch /root/.ssh/authorized_keys && chmod 600 /root/.ssh/authorized_keys && grep -qxF '%[1]s' /root/.ssh/authorized_keys || printf '%[1]s\\n' >> /root/.ssh/authorized_keys", escaped)
-
-	var exit int
-	var output []byte
-	if exit, output, err = conn.SendWithOutput(command); err != nil {
-		return fmt.Errorf("failed to ensure SSH key: %w", err)
-	}
-
-	if exit != 0 {
-		return fmt.Errorf("failed to ensure SSH key (exit %d): %s", exit, bytes.TrimSpace(output))
-	}
-
-	return nil
-}
-
-func escapeForSingleQuotes(input string) string {
-	if !strings.ContainsRune(input, '\'') {
-		return input
-	}
-
-	return strings.ReplaceAll(input, "'", "'\"'\"'")
 }
 
 func runSetupScripts(log ProgressLogger, conn *ssh.SSHConnection, comp *db.Competition, plan *containerPlan, network *teamNetwork, publicFolderURL, artifactBaseURL string) (err error) {

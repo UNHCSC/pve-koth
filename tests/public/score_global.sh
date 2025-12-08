@@ -1,6 +1,5 @@
 #!/bin/bash
 
-SCORE=0
 CHECK_icmp=false
 CHECK_exporter=false
 CHECK_requiredUsers=false
@@ -9,15 +8,11 @@ CHECK_usersBonus=false
 # Container Can be Pinged? +1, -0
 if ping -c 1 -W 1 "$KOTH_IP" &> /dev/null; then
     CHECK_icmp=true
-    SCORE=$((SCORE + 1))
 fi
 
 # Prometheus Exporter Running? +1, -1
 if curl -s --max-time 2 "http://$KOTH_IP:9100/metrics" | grep -q "Processor"; then
     CHECK_exporter=true
-    SCORE=$((SCORE + 1))
-else
-    SCORE=$((SCORE - 1))
 fi
 
 # Get a list of all human users on the system
@@ -50,15 +45,8 @@ for user in "${AUTHORIZED_USERS[@]}"; do
     fi
 done
 
-if $CHECK_requiredUsers; then
-    SCORE=$((SCORE + 3))
-else
-    SCORE=$((SCORE - 2))
-fi
-
 # Now give the data out as JSON
 echo "{
-    \"score\": $SCORE,
     \"icmp\": $CHECK_icmp,
     \"exporter\": $CHECK_exporter,
     \"requiredUsers\": $CHECK_requiredUsers,
