@@ -41,6 +41,15 @@ type Configuration struct {
 		Port     string `toml:"port" default:"8006" validate:"required"`              // Proxmox VE API port (usually "8006")
 		TokenID  string `toml:"token_id" default:"" validate:"required"`              // Proxmox VE API token ID (e.g. "laas-api-token-id")
 		Secret   string `toml:"secret" default:"" validate:"required"`                // Proxmox VE API token secret
+		Testing  struct {
+			Enabled        bool   `toml:"enabled" default:"false"`                                                                          // Enable Proxmox VE integration testing mode
+			SubnetCIDR     string `toml:"subnet_cidr" default:"10.255.0.0/16"`                                                              // Subnet CIDR to use for testing VMs
+			Storage        string `toml:"storage" default:"team"`                                                                           // Proxmox VE storage to use for testing VMs
+			UbuntuTemplate string `toml:"ubuntu_template" default:"isos-ct_templates:vztmpl/ubuntu-25.04-standard_25.04-1.1_amd64.tar.zst"` // Proxmox VE container template to use for testing VMs
+			Gateway        string `toml:"gateway" default:"10.0.0.1"`                                                                       // Gateway IP for testing VMs
+			DNS            string `toml:"dns" default:"10.0.0.2"`                                                                           // DNS server IP for testing VMs
+			SearchDomain   string `toml:"search_domain" default:"cyber.lab"`                                                                // Search domain for testing VMs
+		} `toml:"testing"` // Proxmox VE integration testing configuration
 	} `toml:"proxmox"` // Proxmox VE integration configuration
 
 	Storage struct {

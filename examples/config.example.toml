@@ -22,6 +22,14 @@
     port = "8006"
     token_id = "root@pam!koth-api-token"
     secret = "secret-goes-here"
+    [proxmox.testing]
+        enabled = true
+        subnet_cidr = "10.255.0.0/26"
+        storage = "team"
+        ubuntu_template = "isos-ct_templates:vztmpl/ubuntu-25.04-standard_25.04-1.1_amd64.tar.zst"
+        gateway = "10.0.0.1"
+        dns = "10.0.0.2"
+        search_domain = "cyber.lab"
 
 [storage]
     base_path = "./koth_live_data"
