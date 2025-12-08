@@ -6,6 +6,7 @@ import (
 	"net"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -46,7 +47,7 @@ func initProxmox(t *testing.T) (api *proxmoxAPI.ProxmoxAPI) {
 	return
 }
 
-func initWebServer(t *testing.T, port string) (reqToken func() (token string), revToken func(token string)) {
+func initWebServer(t *testing.T, port string) (reqToken func() (token string), revToken func(token string), kill chan struct{}, stopped chan struct{}) {
 	var tokens map[string]bool = map[string]bool{}
 
 	reqToken = func() (token string) {
@@ -72,8 +73,23 @@ func initWebServer(t *testing.T, port string) (reqToken func() (token string), r
 	})
 
 	app.Static("/", "./public")
+	kill = make(chan struct{})
+	stopped = make(chan struct{})
 
-	go app.Listen(fmt.Sprintf("0.0.0.0:%s", port))
+	go func() {
+		defer close(stopped)
+		var err error
+		if err = app.Listen(fmt.Sprintf("0.0.0.0:%s", port)); err != nil {
+			t.Errorf("failed to start fiber web server: %v", err)
+		}
+	}()
+
+	go func() {
+		<-kill
+		if err := app.Shutdown(); err != nil {
+			t.Errorf("failed to shutdown fiber web server: %v", err)
+		}
+	}()
 
 	return
 }
@@ -182,6 +198,8 @@ type ProxmoxTestingEnvironment struct {
 	cleanSSHHandler    func() (err error)
 	sshConnections     []*ssh.SSHConnection
 	webPort            string
+	webKillChan        chan struct{}
+	webStoppedChan     chan struct{}
 }
 
 func (tenv *ProxmoxTestingEnvironment) Cleanup(t *testing.T) {
@@ -210,6 +228,16 @@ func (tenv *ProxmoxTestingEnvironment) Cleanup(t *testing.T) {
 		if err = conn.Close(); err != nil && !strings.Contains(strings.ToLower(err.Error()), "eof") {
 			t.Fatalf("failed to close SSH connection: %v", err)
 		}
+	}
+
+	if tenv.webKillChan != nil {
+		close(tenv.webKillChan)
+		tenv.webKillChan = nil
+	}
+
+	if tenv.webStoppedChan != nil {
+		<-tenv.webStoppedChan
+		tenv.webStoppedChan = nil
 	}
 }
 
@@ -281,6 +309,26 @@ func (tenv *ProxmoxTestingEnvironment) ExecuteOn(idx int, command string) (statu
 	return
 }
 
+func (tenv *ProxmoxTestingEnvironment) SSHAll() (err error) {
+	var wg sync.WaitGroup
+	wg.Add(len(tenv.results))
+	for i := range tenv.results {
+		go func(i int) {
+			defer wg.Done()
+			var conn *ssh.SSHConnection
+			if conn, err = tenv.ConnectSSH(i); err != nil {
+				return
+			}
+
+			tenv.sshConnections[i] = conn
+		}(i)
+	}
+
+	wg.Wait()
+
+	return
+}
+
 func proxmoxEnvironmentSetup(t *testing.T, needsSSHKeys, needsWebserver bool, containerHostnames []string, useBulkOperations bool) (env *ProxmoxTestingEnvironment, err error) {
 	env = &ProxmoxTestingEnvironment{
 		nodeRotator:        0,
@@ -311,7 +359,7 @@ func proxmoxEnvironmentSetup(t *testing.T, needsSSHKeys, needsWebserver bool, co
 			t.Fatalf("failed to parse web server address: %v", err)
 		}
 
-		env.reqToken, env.revToken = initWebServer(t, env.webPort)
+		env.reqToken, env.revToken, env.webKillChan, env.webStoppedChan = initWebServer(t, env.webPort)
 	}
 
 	// Allocate IPs
@@ -327,6 +375,7 @@ func proxmoxEnvironmentSetup(t *testing.T, needsSSHKeys, needsWebserver bool, co
 
 	// Create containers
 	if useBulkOperations {
+		t.Logf("Using bulk container creation for %d containers", len(containerHostnames))
 		var bulkResults []*proxmoxAPI.ProxmoxAPIBulkCreateResult
 		if bulkResults, err = env.api.BulkCreateContainersConcurrent(env.api.Nodes, env.configs, 1+len(containerHostnames)/4); err != nil {
 			t.Fatalf("failed to bulk create containers: %v", err)
@@ -334,8 +383,31 @@ func proxmoxEnvironmentSetup(t *testing.T, needsSSHKeys, needsWebserver bool, co
 
 		for _, bulkResult := range bulkResults {
 			env.results = append(env.results, bulkResult.Result)
-			env.cleanups = append(env.cleanups, bulkResult.Cleanup)
 		}
+
+		var ids []int
+		for _, res := range env.results {
+			ids = append(ids, res.CTID)
+		}
+
+		t.Logf("Starting %d containers using bulk start", len(ids))
+		if err = env.api.BulkCTActionWithRetries(env.api.BulkStart, ids, 1+len(containerHostnames)/4); err != nil {
+			t.Fatalf("failed to bulk start containers: %v", err)
+		}
+
+		env.cleanups = append(env.cleanups, func() (err error) {
+			t.Logf("Stopping %d containers using bulk stop", len(ids))
+			if err = env.api.BulkCTActionWithRetries(env.api.BulkStop, ids, 1+len(containerHostnames)/4); err != nil {
+				t.Fatalf("failed to bulk stop containers: %v", err)
+			}
+
+			t.Logf("Destroying %d containers using bulk delete", len(ids))
+			if err = env.api.BulkCTActionWithRetries(env.api.BulkDelete, ids, 1+len(containerHostnames)/4); err != nil {
+				t.Fatalf("failed to bulk delete containers: %v", err)
+			}
+
+			return
+		})
 	} else {
 		for _, conf := range env.configs {
 			var node *proxmox.Node = env.api.Nodes[env.nodeRotator%len(env.api.Nodes)]

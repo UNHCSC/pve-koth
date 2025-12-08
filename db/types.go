@@ -90,6 +90,10 @@ type Container struct {
 	PVEID       int64     `json:"id" gomysql:"id,primary,unique"`
 	IPAddress   string    `json:"ipAddress" gomysql:"ip_address,unique"`
 	Status      string    `json:"status" gomysql:"status"`
+	TeamID      int64     `json:"teamID,omitempty" gomysql:"team_id"`
+	ConfigName  string    `json:"containerConfigName,omitempty" gomysql:"container_config_name"`
+	StoragePool string    `json:"storagePool" gomysql:"storage_pool"`
+	NodeName    string    `json:"nodeName" gomysql:"node_name"`
 	LastUpdated time.Time `json:"lastUpdated" gomysql:"last_updated"`
 	CreatedAt   time.Time `json:"createdAt" gomysql:"created_at"`
 }

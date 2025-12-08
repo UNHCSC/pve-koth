@@ -160,8 +160,7 @@ func scoreCompetition(comp *db.Competition) (err error) {
 		return fmt.Errorf("%s failed to read SSH key: %w", logPrefix, err)
 	}
 
-	publicBaseURL := buildCompetitionPublicBase(externalBaseURL(), comp.SystemID)
-	publicFolderURL := buildPublicFolderURL(publicBaseURL, comp.SetupPublicFolder)
+	publicFolderURL := competitionPublicFolderURL(comp)
 	artifactBaseURL := buildCompetitionArtifactBase(externalBaseURL(), comp.SystemID)
 
 	var wg sync.WaitGroup
@@ -260,6 +259,15 @@ func scoreTeam(comp *db.Competition, team *db.Team, teamIndex int, configs []db.
 			},
 		}
 
+		status, statusErr := containerStatusForTeam(team.ID, containerCfg.Name)
+		if statusErr != nil {
+			scoringLog.Errorf("failed to fetch status for %s (%s): %v\n", plan.options.Hostname, containerCfg.Name, statusErr)
+		}
+		if strings.EqualFold(status, "redeploying") {
+			scoringLog.Statusf("Skipping scoring for %s while redeploying\n", plan.options.Hostname)
+			continue
+		}
+
 		wg.Add(1)
 		go func(cfg db.TeamContainerConfig, plan *containerPlan) {
 			defer wg.Done()
@@ -334,6 +342,9 @@ func scoreContainer(comp *db.Competition, plan *containerPlan, network *teamNetw
 	if len(scoringScripts) > 0 {
 		if conn, err = connectForScoring(plan.ipAddress, privateKey); err != nil {
 			scoringLog.Errorf("failed to connect to %s (%s): %v\n", plan.options.Hostname, plan.ipAddress, err)
+		}
+		if conn == nil {
+			scoringLog.Statusf("Container %s (%s) is offline or unreachable; scoring will treat checks as failed\n", plan.options.Hostname, plan.ipAddress)
 		}
 	}
 
@@ -454,6 +465,24 @@ func parseCheckPayload(raw []byte) (map[string]bool, error) {
 	}
 
 	return nil, fmt.Errorf("payload missing boolean check data")
+}
+
+func containerStatusForTeam(teamID int64, configName string) (string, error) {
+	filter := gomysql.NewFilter().
+		KeyCmp(db.Containers.FieldBySQLName("team_id"), gomysql.OpEqual, teamID).
+		And().
+		KeyCmp(db.Containers.FieldBySQLName("container_config_name"), gomysql.OpEqual, strings.TrimSpace(configName))
+
+	results, err := db.Containers.SelectAllWithFilter(filter)
+	if err != nil {
+		return "", err
+	}
+
+	if len(results) == 0 {
+		return "", nil
+	}
+
+	return strings.TrimSpace(results[0].Status), nil
 }
 
 func connectForScoring(ip string, privateKey []byte) (*ssh.SSHConnection, error) {

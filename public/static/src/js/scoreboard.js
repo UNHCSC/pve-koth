@@ -13,6 +13,10 @@ const dateFormatter = new Intl.DateTimeFormat(undefined, {
     timeStyle: "short",
 });
 
+const SCORE_ANIMATION_DURATION = 600;
+const scoreHistory = new Map();
+const scoreAnimationTokens = new Map();
+
 const state = {
     competitions: [],
     selected: root?.dataset.selected || "",
@@ -32,38 +36,48 @@ function computeTeamCheckSummary(team) {
     });
 
     const ratio = total > 0 ? passed / total : 0;
-    let status = "bg-slate-600/40 text-slate-200";
+    let statusClasses = "bg-slate-600/40";
+    let textColor = "#e2e8f0";
     if (total === 0) {
-        status = "bg-slate-600/40 text-slate-200";
+        statusClasses = "bg-slate-600/40";
+        textColor = "#e2e8f0";
     } else if (ratio >= 0.85) {
-        status = "bg-emerald-500/30 text-emerald-100";
+        statusClasses = "bg-emerald-500/30";
+        textColor = "#dcfce7";
     } else if (ratio >= 0.6) {
-        status = "bg-yellow-500/30 text-yellow-900";
+        statusClasses = "bg-yellow-500/30";
+        textColor = "#78350f";
     } else if (ratio >= 0.3) {
-        status = "bg-orange-500/30 text-orange-100";
+        statusClasses = "bg-orange-500/30";
+        textColor = "#ffedd5";
     } else {
-        status = "bg-rose-600/40 text-rose-100";
+        statusClasses = "bg-rose-600/40";
+        textColor = "#ffe4e6";
     }
 
-    return { passed, total, ratio, status };
+    return { passed, total, ratio, statusClasses, textColor };
 }
 
 function renderRankingRow(team, index) {
     const rowClass =
         index === 0 ? "bg-white/10" : index % 2 === 0 ? "bg-white/[0.04]" : "bg-transparent";
     const summary = computeTeamCheckSummary(team);
-    return `<tr class="${rowClass}">
+    const teamKey = team.id ?? index;
+    const scoreValue = Number.isFinite(Number(team.score)) ? Number(team.score) : 0;
+    return `<tr class="${rowClass} score-row">
         <td class="px-2 py-1.5 text-xs font-semibold text-slate-200">#${index + 1}</td>
         <td class="px-2 py-1.5">
             <p class="text-white text-sm font-semibold">${escapeHTML(team.name)}</p>
             <p class="text-[0.65rem] text-slate-400">Updated ${formatDate(team.lastUpdated)}</p>
         </td>
-        <td class="px-2 py-1.5 text-right text-base font-bold text-white">${team.score}</td>
-        <td class="px-2 py-1.5 text-right">
-            <span class="inline-flex items-center rounded-lg px-2 py-0.5 text-[0.65rem] font-semibold ${summary.status}">
-                ${summary.passed}/${summary.total || 0} up
-            </span>
+        <td class="px-2 py-1.5 text-right text-base font-bold text-white">
+            <span class="score-value" data-team-id="team-${teamKey}" data-target="${scoreValue}">${scoreValue}</span>
         </td>
+        <td class="px-2 py-1.5 text-right">
+                <span class="status-pill matrix-status inline-flex items-center rounded-lg px-2 py-0.5 text-[0.65rem] font-semibold ${summary.statusClasses}" style="color: ${summary.textColor};">
+                    ${summary.passed}/${summary.total || 0} up
+                </span>
+            </td>
     </tr>`;
 }
 
@@ -147,48 +161,37 @@ function buildContainerMatrices(selected) {
 }
 
 function renderMatrixTable(matrix, index = 0) {
-    const columns = matrix.columns;
-    const rows = matrix.rows;
-    const hasData = columns.length > 0;
+    const checks = matrix.columns || [];
+    const teams = matrix.rows || [];
+    const hasData = checks.length > 0 && teams.length > 0;
 
     if (!hasData) {
         return `<div class="space-y-1 border-t border-white/5 pt-3">
             <p class="text-sm font-semibold text-white">${escapeHTML(matrix.name)}</p>
-            <p class="text-xs text-slate-400">No services reported yet.</p>
+            <p class="text-xs text-slate-400">No services or teams reported yet.</p>
         </div>`;
     }
 
-    const gridTemplate = `grid-template-columns: auto repeat(${columns.length}, minmax(5rem, 1fr));`;
+    const gridTemplate = `grid-template-columns: minmax(6rem, 1fr) repeat(${teams.length}, minmax(5rem, 1fr));`;
 
-    const headerRow = `<div class="grid gap-1 text-[0.7rem] uppercase tracking-[0.2em] text-slate-300 pb-1 border-b border-white/10 mb-1"
-        style="${gridTemplate}">
-        ${index === 0 ? '<span>Team</span>' : '<span></span>'}
-        ${columns
+    const headerRow = `<div class="grid gap-1 text-[0.65rem] uppercase tracking-[0.2em] text-slate-300 pb-1 border-b border-white/10 mb-1" style="${gridTemplate}">
+        <span class="text-left">Check</span>
+        ${teams
             .map(
-                (column) =>
-                    `<span class="text-center whitespace-nowrap">${escapeHTML(column.name)}</span>`
+                (team) => `<span class="text-center whitespace-nowrap text-slate-200 font-semibold">${escapeHTML(
+                    team.team
+                )}</span>`
             )
             .join("")}
     </div>`;
 
-    const body = rows
-        .map((row) => {
-            const cells = row.statuses
-                .map((status) => {
-                    let classes = "bg-white/5 text-slate-200 border-white/15";
-                    let label = "—";
-                    if (status === true) {
-                        classes = "bg-emerald-500/20 text-emerald-100 border-emerald-400/30";
-                        label = "Up";
-                    } else if (status === false) {
-                        classes = "bg-rose-500/25 text-rose-100 border-rose-400/30";
-                        label = "Down";
-                    }
-                    return `<span class="inline-flex w-full items-center justify-center rounded-xl border px-3 py-1 text-[0.7rem] font-semibold leading-tight ${classes}">${label}</span>`;
-                })
+    const body = checks
+        .map((check, checkIndex) => {
+            const cells = teams
+                .map((team) => renderStatusCell(team.statuses?.[checkIndex]))
                 .join("");
             return `<div class="grid items-center gap-1 text-[0.75rem]" style="${gridTemplate}">
-                <span class="truncate font-semibold text-white/90">${escapeHTML(row.team)}</span>
+                <span class="truncate font-semibold text-white/90">${escapeHTML(check.name)}</span>
                 ${cells}
             </div>`;
         })
@@ -205,6 +208,19 @@ function renderMatrixTable(matrix, index = 0) {
             <div class="space-y-1">${body}</div>
         </div>
     </div>`;
+}
+
+function renderStatusCell(status) {
+    let classes = "bg-white/5 text-slate-200 border-white/15";
+    let label = "—";
+    if (status === true) {
+        classes = "bg-emerald-500/20 text-emerald-100 border-emerald-400/30";
+        label = "Up";
+    } else if (status === false) {
+        classes = "bg-rose-500/25 text-rose-100 border-rose-400/30";
+        label = "Down";
+    }
+    return `<span class="matrix-status inline-flex w-full items-center justify-center rounded-xl border px-3 py-1 text-[0.7rem] font-semibold leading-tight ${classes}">${label}</span>`;
 }
 
 function formatDate(value) {
@@ -308,6 +324,7 @@ function renderTable() {
             ${renderGrid(selected)}
         </div>
     </div>`;
+    animateScoreCells(selected.teams);
 }
 
 function renderGrid(selected) {
@@ -321,6 +338,47 @@ function renderGrid(selected) {
     }
 
     return matrices.map((matrix, index) => renderMatrixTable(matrix, index)).join("");
+}
+
+function animateScoreCells(teams = []) {
+    if (!table) return;
+    teams.forEach((team, index) => {
+        const teamKey = team.id ?? index;
+        const attrId = `team-${teamKey}`;
+        const cell = table.querySelector(`[data-team-id="${attrId}"]`);
+        if (!cell) {
+            return;
+        }
+
+        const target = Number.isFinite(Number(team.score)) ? Number(team.score) : 0;
+        const previous = scoreHistory.get(attrId);
+        const startValue = Number.isFinite(previous) ? previous : 0;
+        if (startValue === target) {
+            cell.textContent = target;
+            scoreHistory.set(attrId, target);
+            return;
+        }
+
+        const token = Symbol();
+        scoreAnimationTokens.set(attrId, token);
+        const startTime = performance.now();
+
+        function step(timestamp) {
+            if (scoreAnimationTokens.get(attrId) !== token) {
+                return;
+            }
+            const progress = Math.min((timestamp - startTime) / SCORE_ANIMATION_DURATION, 1);
+            const current = Math.round(startValue + (target - startValue) * progress);
+            cell.textContent = current;
+            if (progress < 1) {
+                requestAnimationFrame(step);
+            } else {
+                scoreHistory.set(attrId, target);
+            }
+        }
+
+        requestAnimationFrame(step);
+    });
 }
 
 async function loadScoreboard() {

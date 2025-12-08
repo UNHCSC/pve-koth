@@ -31,7 +31,7 @@ const (
 	containerRetryDelay    = 5 * time.Second
 )
 
-var spinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
+var spinnerFrames = []string{"▁", "▃", "▄", "▅", "▆", "▇", "█", "▇", "▆", "▅", "▄", "▃"}
 
 type threadSafeLogger struct {
 	sink ProgressLogger
@@ -347,7 +347,7 @@ func CreateNewCompWithLogger(request *db.CreateCompetitionRequest, logSink Progr
 	defer cancel()
 
 	var (
-		publicFolderURL = buildCompetitionPublicBase(externalBaseURL(), comp.SystemID)
+		publicFolderURL = competitionPublicFolderURL(comp)
 		artifactBaseURL = buildCompetitionArtifactBase(externalBaseURL(), comp.SystemID)
 	)
 
@@ -483,21 +483,34 @@ func provisionContainerPlan(ctx context.Context, log ProgressLogger, plan *conta
 		}
 	}
 
-	if err = runSetupScripts(log, conn, comp, plan, network, publicFolderURL, artifactBaseURL); err != nil {
+	if err = runSetupScripts(log, conn, comp, plan, network, publicFolderURL, artifactBaseURL, false); err != nil {
 		return entry, err
 	}
 
-	if err = recordProvisionedContainer(comp, plan.team, createResult, plan.ipAddress, teamLock, compLock); err != nil {
+	var record *db.Container
+	if record, err = recordProvisionedContainer(comp, plan.team, plan, createResult, plan.ipAddress, plan.options.StoragePool, createResult.Container.Node, teamLock, compLock); err != nil {
 		log.Errorf("Failed to record container %d: %v\n", createResult.CTID, err)
 		return entry, err
 	}
 	entry.recorded = true
 
+	log.Statusf("Stopping container %s (CTID: %d) after provisioning...", plan.options.Hostname, createResult.CTID)
+	if err = api.StopContainer(createResult.Container); err != nil {
+		log.Errorf("Failed to stop container %d after provisioning: %v\n", createResult.CTID, err)
+		return entry, err
+	}
+
+	record.Status = "stopped"
+	record.LastUpdated = time.Now()
+	if updateErr := db.Containers.Update(record); updateErr != nil {
+		log.Errorf("Failed to update container %d metadata: %v\n", record.PVEID, updateErr)
+	}
+
 	log.Statusf("Container %s (CTID: %d) provisioned successfully.", plan.options.Hostname, createResult.CTID)
 	return entry, nil
 }
 
-func runSetupScripts(log ProgressLogger, conn *ssh.SSHConnection, comp *db.Competition, plan *containerPlan, network *teamNetwork, publicFolderURL, artifactBaseURL string) (err error) {
+func runSetupScripts(log ProgressLogger, conn *ssh.SSHConnection, comp *db.Competition, plan *containerPlan, network *teamNetwork, publicFolderURL, artifactBaseURL string, logEnv bool) (err error) {
 	if len(plan.setupScripts) == 0 {
 		log.Statusf("No setup scripts defined for %s; skipping.", plan.options.Hostname)
 		return nil
@@ -508,6 +521,10 @@ func runSetupScripts(log ProgressLogger, conn *ssh.SSHConnection, comp *db.Compe
 	var token = IssueAccessToken(comp.SystemID, tokenTTL)
 	envs["KOTH_ACCESS_TOKEN"] = token
 	defer RevokeAccessToken(token)
+
+	if logEnv {
+		log.Statusf("Script environment: %s", formatScriptEnv(envs))
+	}
 
 	for _, scriptPath := range plan.setupScripts {
 		var scriptURL = buildArtifactFileURL(artifactBaseURL, scriptPath)
@@ -570,7 +587,33 @@ func buildScriptEnv(comp *db.Competition, plan *containerPlan, network *teamNetw
 	return envs
 }
 
-func recordProvisionedContainer(comp *db.Competition, team *db.Team, result *proxmoxAPI.ProxmoxAPICreateResult, ip string, teamLock *sync.Mutex, compLock *sync.Mutex) (err error) {
+func formatScriptEnv(envs map[string]any) string {
+	if len(envs) == 0 {
+		return ""
+	}
+
+	var keys = make([]string, 0, len(envs))
+	for key := range envs {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+
+	var parts []string
+	for _, key := range keys {
+		value := envs[key]
+		text := fmt.Sprintf("%v", value)
+		if key == "KOTH_ACCESS_TOKEN" && text != "" {
+			if len(text) > 8 {
+				text = fmt.Sprintf("%s...", text[:8])
+			}
+		}
+		parts = append(parts, fmt.Sprintf("%s=%s", key, text))
+	}
+
+	return strings.Join(parts, " ")
+}
+
+func recordProvisionedContainer(comp *db.Competition, team *db.Team, plan *containerPlan, result *proxmoxAPI.ProxmoxAPICreateResult, ip, storagePool, nodeName string, teamLock *sync.Mutex, compLock *sync.Mutex) (record *db.Container, err error) {
 	if teamLock != nil {
 		teamLock.Lock()
 		defer teamLock.Unlock()
@@ -579,26 +622,30 @@ func recordProvisionedContainer(comp *db.Competition, team *db.Team, result *pro
 		compLock.Lock()
 		defer compLock.Unlock()
 	}
-	var record = &db.Container{
+	record = &db.Container{
 		PVEID:       int64(result.CTID),
 		IPAddress:   ip,
 		Status:      "running",
+		TeamID:      plan.team.ID,
+		ConfigName:  plan.name,
+		StoragePool: storagePool,
+		NodeName:    nodeName,
 		LastUpdated: time.Now(),
 		CreatedAt:   time.Now(),
 	}
 
 	if err = db.Containers.Insert(record); err != nil {
-		return
+		return nil, err
 	}
 
 	team.ContainerIDs = append(team.ContainerIDs, record.PVEID)
 	team.LastUpdated = time.Now()
 	if err = db.Teams.Update(team); err != nil {
-		return
+		return nil, err
 	}
 
 	comp.ContainerIDs = append(comp.ContainerIDs, record.PVEID)
-	return
+	return record, nil
 }
 
 func cleanupProvisionedContainers(log ProgressLogger, comp *db.Competition, provisioned []*provisionedContainer) {
@@ -756,15 +803,6 @@ func buildCompetitionArtifactBase(baseURL, competitionID string) string {
 	return fmt.Sprintf("%s/api/competitions/%s/artifacts", trimmed, url.PathEscape(competitionID))
 }
 
-func buildPublicFolderURL(base, folder string) string {
-	base = strings.TrimRight(base, "/")
-	var encoded = encodeRelativePath(folder)
-	if encoded == "" {
-		return base
-	}
-	return base + "/" + encoded
-}
-
 func buildArtifactFileURL(base, relativePath string) string {
 	base = strings.TrimRight(base, "/")
 	var encoded = encodeRelativePath(relativePath)
@@ -799,6 +837,13 @@ func encodeRelativePath(relative string) string {
 	}
 
 	return strings.Join(encoded, "/")
+}
+
+func competitionPublicFolderURL(comp *db.Competition) string {
+	if comp == nil {
+		return ""
+	}
+	return buildCompetitionPublicBase(externalBaseURL(), comp.SystemID)
 }
 
 func sanitizeContainerName(name string) string {

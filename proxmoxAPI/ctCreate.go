@@ -38,6 +38,47 @@ func (api *ProxmoxAPI) CreateContainer(node *proxmox.Node, conf *ContainerCreate
 	return
 }
 
+func (api *ProxmoxAPI) CreateContainerWithID(node *proxmox.Node, conf *ContainerCreateOptions, ctID int) (result *ProxmoxAPICreateResult, err error) {
+	api.createLock.Lock()
+	defer api.createLock.Unlock()
+
+	result = &ProxmoxAPICreateResult{}
+
+	if ctID <= 0 {
+		err = fmt.Errorf("invalid container ID %d", ctID)
+		return
+	}
+
+	var isFree bool
+	if isFree, err = api.Cluster.CheckID(api.bg, ctID); err != nil {
+		err = fmt.Errorf("failed to check container ID %d: %w", ctID, err)
+		return
+	} else if !isFree {
+		err = fmt.Errorf("container ID %d is already in use", ctID)
+		return
+	}
+
+	result.CTID = ctID
+
+	var task *proxmox.Task
+	if task, err = node.NewContainer(api.bg, ctID, conf.GoProxmoxOptions()...); err != nil {
+		err = fmt.Errorf("failed to create container: %w", err)
+		return
+	}
+
+	if err = task.Wait(api.bg, time.Second, time.Minute*5); err != nil {
+		err = fmt.Errorf("failed to wait for container creation task: %w", err)
+		return
+	}
+
+	if result.Container, err = node.Container(api.bg, result.CTID); err != nil {
+		err = fmt.Errorf("failed to get created container info: %w", err)
+		return
+	}
+
+	return
+}
+
 func (api *ProxmoxAPI) BulkCreateContainers(nodes []*proxmox.Node, confs []*ContainerCreateOptions) (results []*ProxmoxAPIBulkCreateResult) {
 	api.createLock.Lock()
 	defer api.createLock.Unlock()

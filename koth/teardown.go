@@ -83,13 +83,13 @@ func stopAndDeleteContainers(comp *db.Competition, log ProgressLogger) error {
 	}
 
 	log.Status("Stopping containers...")
-	if err := api.BulkStop(ids); err != nil {
+	if err := api.BulkCTActionWithRetries(api.BulkStop, ids, 1+len(ids)/4); err != nil {
 		log.Errorf("Failed to stop containers: %v\n", err)
 		return err
 	}
 
 	log.Status("Deleting containers...")
-	if err := api.BulkDelete(ids); err != nil {
+	if err := api.BulkCTActionWithRetries(api.BulkDelete, ids, 1+len(ids)/4); err != nil {
 		log.Errorf("Failed to delete containers: %v\n", err)
 		return err
 	}

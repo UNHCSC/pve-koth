@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/UNHCSC/pve-koth/ssh"
@@ -201,10 +202,37 @@ func TestContainerBulkOperations(t *testing.T) {
 		output    string
 	)
 
-	if env, err = proxmoxEnvironmentSetup(t, true, true, genHostnamesHelper("koth-test-bulk-", 32), true); err != nil {
+	if env, err = proxmoxEnvironmentSetup(t, true, false, genHostnamesHelper("koth-test-bulk-", 32), true); err != nil {
 		t.Fatalf("failed to setup proxmox testing environment: %v", err)
 	}
 
 	defer env.Cleanup(t)
 
+	if err = env.SSHAll(); err != nil {
+		t.Fatalf("failed to establish SSH connections to all containers: %v", err)
+	}
+
+	var wg sync.WaitGroup
+	wg.Add(len(env.containerHostnames))
+
+	for i := range env.containerHostnames {
+		go func(idx int) {
+			defer wg.Done()
+
+			t.Logf("Connecting to %s (%s) via SSH...", env.containerHostnames[idx], env.ips[idx])
+			if _, err = env.ConnectSSH(idx); err != nil {
+				t.Errorf("failed to connect via SSH to container %s: %v", env.containerHostnames[idx], err)
+				return
+			}
+
+			t.Logf("SSH connection to %s (%s) established.", env.containerHostnames[idx], env.ips[idx])
+			if cmdStatus, output, err = env.ExecuteOn(idx, "hostname"); err != nil {
+				t.Errorf("failed to execute command via SSH on container %s: %v", env.containerHostnames[idx], err)
+				return
+			}
+
+			assert.Equal(t, 0, cmdStatus, "expected command to succeed")
+			assert.Equal(t, env.containerHostnames[idx], strings.TrimSpace(output), "expected hostname to match container hostname")
+		}(i)
+	}
 }

@@ -43,6 +43,7 @@
         <div id="empty" class="hidden text-slate-400 text-sm py-6 text-center">No competitions yet.</div>
         <ul id="comps" class="space-y-4" data-can-manage="{{if .CanManage}}true{{else}}false{{end}}"></ul>
     </section>
+
 </div>
 
 {{if .CanManage}}
@@ -64,7 +65,7 @@
                             <svg xmlns="http://www.w3.org/2000/svg" class="h-10 w-10 text-gray-400" fill="none" viewBox="0 0 24 24"
                                 stroke="currentColor" stroke-width="1.5">
                                 <path stroke-linecap="round" stroke-linejoin="round"
-                                    d="M3 15.75V18a2.25 2.25 0 002.25 2.25h13.5A2.25 2.25 0 0021 18v-2.25m-9-9v9m0-9l-3 3m3-3l3 3M3.375 9h17.25" />
+                                    d="M3 15.75V18a2.25 2.25 0 002.25 2.25h13.5A2.25 2.25 0 0021 18V15.75m-9-9v9m0-9-3 3m3-3 3 3" />
                             </svg>
                             <div>
                                 <p class="text-sm font-semibold text-white">Drop your <code>competition.zip</code> here</p>
@@ -102,6 +103,25 @@
         </div>
     </div>
 </div>
+    <div id="redeploy-modal" class="hidden fixed inset-0 z-50">
+        <div id="redeploy-overlay" class="absolute inset-0 bg-black/80 backdrop-blur-sm"></div>
+        <div class="relative z-10 min-h-screen w-full flex items-center justify-center p-4">
+            <div class="w-full max-w-2xl rounded-3xl border border-white/10 bg-slate-900 shadow-2xl shadow-black/30 overflow-hidden">
+                <div class="flex items-start justify-between px-6 py-4 border-b border-white/10 bg-slate-900 rounded-t-3xl">
+                    <div>
+                        <p class="text-xs uppercase tracking-[0.3em] text-slate-500 mb-1">Redeploy container</p>
+                        <p data-redeploy-target class="text-lg font-semibold text-white">Awaiting selection</p>
+                    </div>
+                    <button id="close-redeploy" aria-label="Close redeploy status"
+                        class="text-slate-400 hover:text-white focus:outline-none focus:ring-2 focus:ring-blue-400 rounded">&times;</button>
+                </div>
+                <div class="p-6 space-y-4 text-slate-200">
+                    <p data-redeploy-status class="text-sm font-semibold text-slate-300">Waiting to start</p>
+                    <pre id="redeploy-log" class="hidden mt-3 p-3 bg-slate-950 text-emerald-200 rounded-lg border border-white/10 max-h-48 overflow-auto text-sm w-full"></pre>
+                </div>
+            </div>
+        </div>
+    </div>
 {{end}}
 
 <script type="module" src="/static/dashboard.js" defer></script>

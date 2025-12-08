@@ -70,6 +70,45 @@ type scoreboardCompetition struct {
 	Teams          []scoreboardTeam `json:"teams"`
 }
 
+type teamAdminSummary struct {
+	ID          int64     `json:"id"`
+	Name        string    `json:"name"`
+	Score       int       `json:"score"`
+	LastUpdated time.Time `json:"lastUpdated"`
+}
+
+type containerTeamSummary struct {
+	ID   int64  `json:"id"`
+	Name string `json:"name"`
+}
+
+type containerCompetitionSummary struct {
+	ID            int64  `json:"id"`
+	CompetitionID string `json:"competitionID"`
+	Name          string `json:"name"`
+}
+
+type containerAdminSummary struct {
+	ID          int64                        `json:"id"`
+	Name        string                       `json:"name"`
+	IPv4        string                       `json:"ipAddress"`
+	Node        string                       `json:"node"`
+	Status      string                       `json:"status"`
+	ConfigName  string                       `json:"containerConfigName"`
+	LastUpdated time.Time                    `json:"lastUpdated"`
+	Team        *containerTeamSummary        `json:"team,omitempty"`
+	Competition *containerCompetitionSummary `json:"competition,omitempty"`
+}
+
+type containerPowerRequest struct {
+	IDs    []int64 `json:"ids"`
+	Action string  `json:"action"`
+}
+
+type containerRedeployRequest struct {
+	IDs []int64 `json:"ids"`
+}
+
 var (
 	errCompetitionIDMissing  = errors.New("competitionID is required")
 	errCompetitionIDConflict = errors.New("competitionID already exists")
@@ -544,6 +583,39 @@ func apiStreamUploadJob(c *fiber.Ctx) (err error) {
 	return nil
 }
 
+func apiStreamRedeployJob(c *fiber.Ctx) (err error) {
+	var user *auth.AuthUser = auth.IsAuthenticated(c, jwtSigningKey)
+	if user == nil {
+		return fiber.NewError(fiber.StatusUnauthorized, "authentication required")
+	}
+
+	var jobID = c.Params("jobID")
+	var job *redeployJob = getRedeployJob(jobID)
+	if job == nil {
+		return fiber.ErrNotFound
+	}
+
+	if !job.canView(user) {
+		return fiber.ErrForbidden
+	}
+
+	c.Set("Content-Type", "text/event-stream")
+	c.Set("Cache-Control", "no-cache")
+	c.Set("Connection", "keep-alive")
+
+	var listener = job.subscribe()
+
+	c.Context().SetBodyStreamWriter(func(w *bufio.Writer) {
+		defer job.unsubscribe(listener)
+		for message := range listener {
+			fmt.Fprintf(w, "data: %s\n\n", sanitizeLogMessage(message))
+			w.Flush()
+		}
+	})
+
+	return nil
+}
+
 func apiTeardownCompetition(c *fiber.Ctx) (err error) {
 	user := auth.IsAuthenticated(c, jwtSigningKey)
 	if user == nil {
@@ -630,6 +702,454 @@ func apiSetCompetitionScoring(c *fiber.Ctx) (err error) {
 	})
 }
 
+func apiListContainers(c *fiber.Ctx) (err error) {
+	user := auth.IsAuthenticated(c, jwtSigningKey)
+	if user == nil {
+		return fiber.NewError(fiber.StatusUnauthorized, "authentication required")
+	}
+
+	if user.Permissions() < auth.AuthPermsAdministrator {
+		return fiber.NewError(fiber.StatusForbidden, "administrator access required")
+	}
+
+	var (
+		filter = strings.TrimSpace(c.Query("competition"))
+		comps  []*db.Competition
+	)
+
+	if filter != "" {
+		var comp *db.Competition
+		if comp, err = loadCompetitionByIdentifier(filter); err != nil {
+			return fiber.NewError(fiber.StatusInternalServerError, "failed to load competition")
+		}
+
+		if comp == nil {
+			return fiber.ErrNotFound
+		}
+
+		comps = []*db.Competition{comp}
+	} else {
+		if comps, err = db.Competitions.SelectAll(); err != nil {
+			return fiber.NewError(fiber.StatusInternalServerError, "failed to load competitions")
+		}
+	}
+
+	if len(comps) == 0 {
+		return c.JSON(fiber.Map{"containers": []containerAdminSummary{}})
+	}
+
+	ctSet := make(map[int64]struct{})
+	for _, comp := range comps {
+		if comp == nil {
+			continue
+		}
+		for _, id := range comp.ContainerIDs {
+			if id <= 0 {
+				continue
+			}
+			ctSet[id] = struct{}{}
+		}
+	}
+
+	if len(ctSet) == 0 {
+		return c.JSON(fiber.Map{"containers": []containerAdminSummary{}})
+	}
+
+	teamIDs := make(map[int64]struct{})
+	for _, comp := range comps {
+		for _, teamID := range comp.TeamIDs {
+			teamIDs[teamID] = struct{}{}
+		}
+	}
+
+	teamLookup := make(map[int64]*db.Team, len(teamIDs))
+	if len(teamIDs) > 0 {
+		var teams []*db.Team
+		if teams, err = db.Teams.SelectAll(); err != nil {
+			return fiber.NewError(fiber.StatusInternalServerError, "failed to load teams")
+		}
+
+		for _, team := range teams {
+			if team == nil {
+				continue
+			}
+			if _, needed := teamIDs[team.ID]; needed {
+				teamLookup[team.ID] = team
+			}
+		}
+	}
+
+	ctToTeam := make(map[int64]*db.Team)
+	for _, team := range teamLookup {
+		for _, ctID := range team.ContainerIDs {
+			if _, needed := ctSet[ctID]; needed {
+				ctToTeam[ctID] = team
+			}
+		}
+	}
+
+	ctToComp := make(map[int64]*db.Competition)
+	for _, comp := range comps {
+		if comp == nil {
+			continue
+		}
+		for _, ctID := range comp.ContainerIDs {
+			if _, needed := ctSet[ctID]; needed {
+				ctToComp[ctID] = comp
+			}
+		}
+	}
+
+	var runtime map[int64]koth.ContainerRuntime
+	var runtimeErr error
+	ctIDs := make([]int64, 0, len(ctSet))
+	for id := range ctSet {
+		ctIDs = append(ctIDs, id)
+	}
+
+	if runtime, runtimeErr = koth.ContainerRuntimeSnapshot(ctIDs); runtimeErr != nil {
+		runtime = make(map[int64]koth.ContainerRuntime)
+		appLog.Errorf("failed to fetch container runtime data: %v\n", runtimeErr)
+	}
+
+	allContainers, err := db.Containers.SelectAll()
+	if err != nil {
+		return fiber.NewError(fiber.StatusInternalServerError, "failed to load containers")
+	}
+
+	recordLookup := make(map[int64]*db.Container)
+	for _, record := range allContainers {
+		if record == nil {
+			continue
+		}
+		if _, needed := ctSet[record.PVEID]; needed {
+			recordLookup[record.PVEID] = record
+		}
+	}
+
+	summaries := make([]containerAdminSummary, 0, len(ctSet))
+	for _, id := range ctIDs {
+		record := recordLookup[id]
+		if record == nil {
+			continue
+		}
+
+		comp := ctToComp[id]
+		team := ctToTeam[id]
+		rt := runtime[id]
+		name := rt.Name
+		if strings.TrimSpace(name) == "" {
+			name = fmt.Sprintf("CT-%d", record.PVEID)
+		}
+
+		status := strings.ToLower(strings.TrimSpace(record.Status))
+		if status == "" {
+			status = "unknown"
+		}
+
+		summary := containerAdminSummary{
+			ID:          record.PVEID,
+			Name:        name,
+			IPv4:        record.IPAddress,
+			Status:      status,
+			Node:        rt.Node,
+			ConfigName:  record.ConfigName,
+			LastUpdated: record.LastUpdated,
+		}
+
+		if team != nil {
+			summary.Team = &containerTeamSummary{ID: team.ID, Name: team.Name}
+		}
+
+		if comp != nil {
+			summary.Competition = &containerCompetitionSummary{
+				ID:            comp.ID,
+				CompetitionID: comp.SystemID,
+				Name:          comp.Name,
+			}
+		}
+
+		summaries = append(summaries, summary)
+	}
+
+	sort.SliceStable(summaries, func(i, j int) bool {
+		compI := ""
+		compJ := ""
+		if summaries[i].Competition != nil {
+			compI = strings.ToLower(summaries[i].Competition.Name)
+		}
+		if summaries[j].Competition != nil {
+			compJ = strings.ToLower(summaries[j].Competition.Name)
+		}
+		if compI != compJ {
+			return compI < compJ
+		}
+
+		teamI := ""
+		teamJ := ""
+		if summaries[i].Team != nil {
+			teamI = strings.ToLower(summaries[i].Team.Name)
+		}
+		if summaries[j].Team != nil {
+			teamJ = strings.ToLower(summaries[j].Team.Name)
+		}
+		if teamI != teamJ {
+			return teamI < teamJ
+		}
+
+		return strings.ToLower(summaries[i].Name) < strings.ToLower(summaries[j].Name)
+	})
+
+	return c.JSON(fiber.Map{
+		"containers": summaries,
+	})
+}
+
+type teamScoreMutationRequest struct {
+	Action string `json:"action"`
+	Amount int    `json:"amount"`
+}
+
+func apiGetCompetitionTeams(c *fiber.Ctx) (err error) {
+	user := auth.IsAuthenticated(c, jwtSigningKey)
+	if user == nil {
+		return fiber.NewError(fiber.StatusUnauthorized, "authentication required")
+	}
+
+	if user.Permissions() < auth.AuthPermsAdministrator {
+		return fiber.NewError(fiber.StatusForbidden, "administrator access required")
+	}
+
+	identifier := strings.TrimSpace(c.Params("competitionID"))
+	if identifier == "" {
+		return fiber.NewError(fiber.StatusBadRequest, "competition identifier required")
+	}
+
+	var comp *db.Competition
+	if comp, err = loadCompetitionByIdentifier(identifier); err != nil {
+		appLog.Errorf("failed to resolve competition %q: %v\n", identifier, err)
+		return fiber.NewError(fiber.StatusInternalServerError, "failed to load competition")
+	}
+
+	if comp == nil {
+		return fiber.ErrNotFound
+	}
+
+	summaries := make([]teamAdminSummary, 0, len(comp.TeamIDs))
+	for _, teamID := range comp.TeamIDs {
+		var team *db.Team
+		if team, err = db.Teams.Select(teamID); err != nil {
+			return fiber.NewError(fiber.StatusInternalServerError, "failed to load teams")
+		}
+		if team == nil {
+			continue
+		}
+
+		summaries = append(summaries, teamAdminSummary{
+			ID:          team.ID,
+			Name:        team.Name,
+			Score:       team.Score,
+			LastUpdated: team.LastUpdated,
+		})
+	}
+
+	sort.SliceStable(summaries, func(i, j int) bool {
+		if summaries[i].Score == summaries[j].Score {
+			return strings.ToLower(summaries[i].Name) < strings.ToLower(summaries[j].Name)
+		}
+		return summaries[i].Score > summaries[j].Score
+	})
+
+	return c.JSON(fiber.Map{
+		"teams": summaries,
+	})
+}
+
+func apiModifyTeamScore(c *fiber.Ctx) (err error) {
+	user := auth.IsAuthenticated(c, jwtSigningKey)
+	if user == nil {
+		return fiber.NewError(fiber.StatusUnauthorized, "authentication required")
+	}
+
+	if user.Permissions() < auth.AuthPermsAdministrator {
+		return fiber.NewError(fiber.StatusForbidden, "administrator access required")
+	}
+
+	identifier := strings.TrimSpace(c.Params("competitionID"))
+	if identifier == "" {
+		return fiber.NewError(fiber.StatusBadRequest, "competition identifier required")
+	}
+
+	var comp *db.Competition
+	if comp, err = loadCompetitionByIdentifier(identifier); err != nil {
+		appLog.Errorf("failed to resolve competition %q: %v\n", identifier, err)
+		return fiber.NewError(fiber.StatusInternalServerError, "failed to load competition")
+	}
+
+	if comp == nil {
+		return fiber.ErrNotFound
+	}
+
+	teamIDParam := strings.TrimSpace(c.Params("teamID"))
+	if teamIDParam == "" {
+		return fiber.NewError(fiber.StatusBadRequest, "team identifier required")
+	}
+
+	teamID, convErr := strconv.ParseInt(teamIDParam, 10, 64)
+	if convErr != nil {
+		return fiber.NewError(fiber.StatusBadRequest, "team identifier invalid")
+	}
+
+	var belongs bool
+	for _, id := range comp.TeamIDs {
+		if id == teamID {
+			belongs = true
+			break
+		}
+	}
+	if !belongs {
+		return fiber.NewError(fiber.StatusNotFound, "team not found in competition")
+	}
+
+	var team *db.Team
+	if team, err = db.Teams.Select(teamID); err != nil {
+		return fiber.NewError(fiber.StatusInternalServerError, "failed to load team")
+	}
+	if team == nil {
+		return fiber.ErrNotFound
+	}
+
+	var payload teamScoreMutationRequest
+	if err = c.BodyParser(&payload); err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, "invalid request payload")
+	}
+
+	action := strings.ToLower(strings.TrimSpace(payload.Action))
+	switch action {
+	case "reset":
+		team.Score = 0
+	case "adjust":
+		if payload.Amount == 0 {
+			return fiber.NewError(fiber.StatusBadRequest, "amount must be non-zero")
+		}
+		team.Score += payload.Amount
+	default:
+		return fiber.NewError(fiber.StatusBadRequest, "action must be 'reset' or 'adjust'")
+	}
+
+	team.LastUpdated = time.Now().UTC()
+	if err = db.Teams.Update(team); err != nil {
+		appLog.Errorf("failed to update team %d score: %v\n", team.ID, err)
+		return fiber.NewError(fiber.StatusInternalServerError, "failed to update team score")
+	}
+
+	message := "team score updated"
+	if action == "reset" {
+		message = "team score reset"
+	}
+
+	return c.JSON(fiber.Map{
+		"message":     message,
+		"score":       team.Score,
+		"lastUpdated": team.LastUpdated,
+	})
+}
+
+func apiSetContainerPower(c *fiber.Ctx) (err error) {
+	user := auth.IsAuthenticated(c, jwtSigningKey)
+	if user == nil {
+		return fiber.NewError(fiber.StatusUnauthorized, "authentication required")
+	}
+
+	if user.Permissions() < auth.AuthPermsAdministrator {
+		return fiber.NewError(fiber.StatusForbidden, "administrator access required")
+	}
+
+	var payload containerPowerRequest
+	if err = c.BodyParser(&payload); err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, "invalid request payload")
+	}
+
+	ids := normalizeRequestedContainers(payload.IDs)
+	if len(ids) == 0 {
+		return fiber.NewError(fiber.StatusBadRequest, "container IDs required")
+	}
+
+	action := strings.ToLower(strings.TrimSpace(payload.Action))
+	if action != "start" && action != "stop" {
+		return fiber.NewError(fiber.StatusBadRequest, "action must be 'start' or 'stop'")
+	}
+
+	for _, id := range ids {
+		if record, selErr := db.Containers.Select(id); selErr != nil {
+			return fiber.NewError(fiber.StatusInternalServerError, "failed to validate containers")
+		} else if record == nil {
+			return fiber.NewError(fiber.StatusNotFound, fmt.Sprintf("container %d not found", id))
+		}
+	}
+
+	switch action {
+	case "start":
+		if err = koth.BulkStartContainers(ids); err != nil {
+			return fiber.NewError(fiber.StatusInternalServerError, "failed to start containers")
+		}
+	case "stop":
+		if err = koth.BulkStopContainers(ids); err != nil {
+			return fiber.NewError(fiber.StatusInternalServerError, "failed to stop containers")
+		}
+	}
+
+	if refreshErr := koth.RefreshContainerStatuses(ids); refreshErr != nil {
+		appLog.Errorf("failed to refresh container statuses after %s request: %v\n", action, refreshErr)
+	}
+
+	return c.JSON(fiber.Map{
+		"message": fmt.Sprintf("containers queued to %s", action),
+		"updated": len(ids),
+	})
+}
+
+func apiRedeployContainers(c *fiber.Ctx) (err error) {
+	user := auth.IsAuthenticated(c, jwtSigningKey)
+	if user == nil {
+		return fiber.NewError(fiber.StatusUnauthorized, "authentication required")
+	}
+
+	if user.Permissions() < auth.AuthPermsAdministrator {
+		return fiber.NewError(fiber.StatusForbidden, "administrator access required")
+	}
+
+	var payload containerRedeployRequest
+	if err = c.BodyParser(&payload); err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, "invalid request payload")
+	}
+
+	ids := normalizeRequestedContainers(payload.IDs)
+	if len(ids) == 0 {
+		return fiber.NewError(fiber.StatusBadRequest, "container IDs required")
+	}
+
+	for _, id := range ids {
+		record, selErr := db.Containers.Select(id)
+		if selErr != nil {
+			return fiber.NewError(fiber.StatusInternalServerError, "failed to validate containers")
+		}
+		if record == nil {
+			return fiber.NewError(fiber.StatusNotFound, fmt.Sprintf("container %d not found", id))
+		}
+	}
+
+	job := newRedeployJob(user, ids)
+	startRedeployJob(job, ids)
+
+	appLog.Basicf("redeploy[%s] queued job %s for containers: %v\n", uploadActor(user), job.ID, ids)
+
+	return c.JSON(fiber.Map{
+		"message": fmt.Sprintf("redeploy queued (%s)", job.ID),
+		"jobID":   job.ID,
+	})
+}
+
 func apiGetScoreboard(c *fiber.Ctx) (err error) {
 	var (
 		user    *auth.AuthUser = auth.IsAuthenticated(c, jwtSigningKey)
@@ -708,6 +1228,27 @@ func apiGetScoreboardCompetition(c *fiber.Ctx) (err error) {
 	}
 
 	return c.JSON(payload)
+}
+
+func normalizeRequestedContainers(ids []int64) []int64 {
+	if len(ids) == 0 {
+		return nil
+	}
+
+	result := make([]int64, 0, len(ids))
+	seen := make(map[int64]struct{}, len(ids))
+	for _, id := range ids {
+		if id <= 0 {
+			continue
+		}
+		if _, exists := seen[id]; exists {
+			continue
+		}
+		seen[id] = struct{}{}
+		result = append(result, id)
+	}
+
+	return result
 }
 
 func summarizeCompetition(comp *db.Competition) competitionSummary {

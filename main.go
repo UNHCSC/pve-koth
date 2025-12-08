@@ -29,6 +29,7 @@ func main() {
 	}
 
 	koth.StartScoringLoop()
+	koth.StartContainerStatusMonitor()
 
 	mainLog.Errorf("fiber log: %v\n", app.StartApp())
 }

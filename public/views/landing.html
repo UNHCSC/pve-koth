@@ -37,23 +37,29 @@
                 </div>
             </div>
 
-            <div class="grid grid-cols-2 gap-4 flex-1 w-full">
+                <div class="grid grid-cols-2 gap-4 flex-1 w-full">
                 <div class="rounded-2xl bg-white/5 border border-white/10 p-5 text-center">
-                    <p class="text-3xl font-bold text-white">
+                    <p class="text-3xl font-bold text-white" data-counter data-target="{{with .Stats}}{{.TotalCompetitions}}{{else}}0{{end}}">
                         {{with .Stats}}{{.TotalCompetitions}}{{else}}0{{end}}
                     </p>
                     <p class="text-xs uppercase tracking-wide text-slate-400">Competitions</p>
                 </div>
                 <div class="rounded-2xl bg-white/5 border border-white/10 p-5 text-center">
-                    <p class="text-3xl font-bold text-white">{{with .Stats}}{{.TotalTeams}}{{else}}0{{end}}</p>
+                    <p class="text-3xl font-bold text-white" data-counter data-target="{{with .Stats}}{{.TotalTeams}}{{else}}0{{end}}">
+                        {{with .Stats}}{{.TotalTeams}}{{else}}0{{end}}
+                    </p>
                     <p class="text-xs uppercase tracking-wide text-slate-400">Teams</p>
                 </div>
                 <div class="rounded-2xl bg-white/5 border border-white/10 p-5 text-center">
-                    <p class="text-3xl font-bold text-white">{{with .Stats}}{{.PublicCompetitions}}{{else}}0{{end}}</p>
+                    <p class="text-3xl font-bold text-white" data-counter data-target="{{with .Stats}}{{.PublicCompetitions}}{{else}}0{{end}}">
+                        {{with .Stats}}{{.PublicCompetitions}}{{else}}0{{end}}
+                    </p>
                     <p class="text-xs uppercase tracking-wide text-slate-400">Public events</p>
                 </div>
                 <div class="rounded-2xl bg-white/5 border border-white/10 p-5 text-center">
-                    <p class="text-3xl font-bold text-white">{{with .Stats}}{{.PrivateCompetitions}}{{else}}0{{end}}</p>
+                    <p class="text-3xl font-bold text-white" data-counter data-target="{{with .Stats}}{{.PrivateCompetitions}}{{else}}0{{end}}">
+                        {{with .Stats}}{{.PrivateCompetitions}}{{else}}0{{end}}
+                    </p>
                     <p class="text-xs uppercase tracking-wide text-slate-400">Private events</p>
                 </div>
             </div>

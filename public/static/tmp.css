@@ -20,10 +20,6 @@
 body {
     margin: 0;
     padding: 0;
-    background-image: url("./assets/unh.png");
-    background-size: cover;
-    background-repeat: no-repeat;
-    background-attachment: fixed;
 
     width: 100%;
     height: 100%;
@@ -383,6 +379,52 @@ body {
     margin-bottom: 0;
 }
 
+.status-pill {
+    display: inline-flex;
+    align-items: center;
+    border-radius: 9999px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    padding: 0.1rem 0.55rem;
+    transition: background-color 0.25s ease, color 0.25s ease, border-color 0.25s ease;
+}
+
+.status-pill.running {
+    background-color: rgba(34, 197, 94, 0.2);
+    color: #bbf7d0;
+}
+
+.status-pill.stopped {
+    background-color: rgba(244, 63, 94, 0.2);
+    color: #fecdd3;
+}
+
+.status-pill.degraded {
+    background-color: rgba(245, 158, 11, 0.2);
+    color: #fef3c7;
+}
+
+.status-pill.unknown {
+    background-color: rgba(148, 163, 184, 0.2);
+    color: #e2e8f0;
+}
+
+.matrix-status {
+    transition: background-color 0.25s ease, color 0.25s ease, border-color 0.25s ease;
+}
+
+.score-row {
+    transition: background-color 0.25s ease;
+}
+
+.score-value {
+    display: inline-flex;
+    justify-content: flex-end;
+    min-width: 2ch;
+    font-variant-numeric: tabular-nums;
+    transition: color 0.25s ease;
+}
+
 span.link {
     text-decoration: underline;
     cursor: pointer;
@@ -405,6 +447,64 @@ span.link {
 
 #switchButton:active {
     filter: brightness(60%);
+}
+
+.panel-content {
+    overflow: hidden;
+    max-height: 0;
+    opacity: 0;
+    transition: max-height 0.35s ease, opacity 0.35s ease;
+}
+
+[data-container-panel][open] .panel-content,
+[data-team-panel][open] .panel-content {
+    max-height: 1400px;
+    opacity: 1;
+}
+
+.panel-body {
+    padding-top: 0.75rem;
+}
+
+[data-container-panel] summary .chevron-icon,
+[data-team-panel] summary .chevron-icon {
+    transition: transform 0.3s ease, background-color 0.3s ease, color 0.3s ease;
+}
+
+[data-container-panel][open] summary .chevron-icon,
+[data-team-panel][open] summary .chevron-icon {
+    transform: rotate(180deg);
+    background-color: rgba(255, 255, 255, 0.15);
+    color: rgba(255, 255, 255, 0.95);
+}
+
+.chevron-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.5rem;
+    height: 1.5rem;
+    border-radius: 9999px;
+    background-color: rgba(255, 255, 255, 0.08);
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.1);
+}
+
+.chevron-icon svg {
+    width: 1rem;
+    height: 1rem;
+    stroke: currentColor;
+    stroke-width: 1.6;
+    fill: none;
+}
+
+[data-container-panel] summary,
+[data-team-panel] summary {
+    cursor: pointer;
+}
+
+[data-container-panel] summary::-webkit-details-marker,
+[data-team-panel] summary::-webkit-details-marker {
+    display: none;
 }
 
 table.serviceGrid {

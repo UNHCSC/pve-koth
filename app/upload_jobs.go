@@ -2,9 +2,7 @@ package app
 
 import (
 	"fmt"
-	"strings"
 	"sync"
-	"time"
 
 	"github.com/UNHCSC/pve-koth/auth"
 	"github.com/UNHCSC/pve-koth/db"
@@ -12,17 +10,12 @@ import (
 )
 
 type uploadJob struct {
-	ID        string
-	Owner     string
-	CreatedAt time.Time
+	*streamJob
 
-	mu          sync.Mutex
-	logs        []string
 	status      string
 	errorMsg    string
 	errorDetail string
-	listeners   map[chan string]struct{}
-	done        bool
+	metaMu      sync.Mutex
 }
 
 var (
@@ -32,12 +25,8 @@ var (
 
 func newUploadJob(user *auth.AuthUser) *uploadJob {
 	var job = &uploadJob{
-		ID:        fmt.Sprintf("job_%d", time.Now().UnixNano()),
-		Owner:     uploadActor(user),
-		CreatedAt: time.Now(),
+		streamJob: newStreamJob("job", uploadActor(user)),
 		status:    "pending",
-		logs:      []string{},
-		listeners: make(map[chan string]struct{}),
 	}
 
 	registerUploadJob(job)
@@ -67,80 +56,39 @@ func (job *uploadJob) appendLogs(logs []string) {
 }
 
 func (job *uploadJob) log(message string) {
-	job.mu.Lock()
-	job.logs = append(job.logs, message)
-	for listener := range job.listeners {
-		select {
-		case listener <- message:
-		default:
-		}
-	}
-	job.mu.Unlock()
+	job.logMessage(message)
 }
 
 func (job *uploadJob) setStatus(status string) {
-	job.mu.Lock()
+	job.metaMu.Lock()
 	job.status = status
-	job.mu.Unlock()
+	job.metaMu.Unlock()
 }
 
 func (job *uploadJob) fail(message string, detail error) {
-	job.mu.Lock()
+	job.metaMu.Lock()
 	job.status = "failed"
 	job.errorMsg = message
 	if detail != nil {
 		job.errorDetail = detail.Error()
 	}
-	job.done = true
-
-	for listener := range job.listeners {
-		close(listener)
-		delete(job.listeners, listener)
-	}
-	job.mu.Unlock()
+	job.metaMu.Unlock()
+	job.markDone()
 }
 
 func (job *uploadJob) complete() {
-	job.mu.Lock()
+	job.metaMu.Lock()
 	job.status = "completed"
-	job.done = true
-	for listener := range job.listeners {
-		close(listener)
-		delete(job.listeners, listener)
-	}
-	job.mu.Unlock()
+	job.metaMu.Unlock()
+	job.markDone()
 }
 
 func (job *uploadJob) subscribe() chan string {
-	job.mu.Lock()
-	defer job.mu.Unlock()
-
-	bufferSize := len(job.logs) + 16
-	if bufferSize < 16 {
-		bufferSize = 16
-	}
-
-	ch := make(chan string, bufferSize)
-	for _, entry := range job.logs {
-		ch <- entry
-	}
-
-	if job.done {
-		close(ch)
-	} else {
-		job.listeners[ch] = struct{}{}
-	}
-
-	return ch
+	return job.streamJob.subscribe()
 }
 
 func (job *uploadJob) unsubscribe(ch chan string) {
-	job.mu.Lock()
-	if _, ok := job.listeners[ch]; ok {
-		delete(job.listeners, ch)
-		close(ch)
-	}
-	job.mu.Unlock()
+	job.streamJob.unsubscribe(ch)
 }
 
 // Implement koth.ProgressLogger
@@ -162,8 +110,8 @@ func (job *uploadJob) Successf(format string, args ...any) {
 }
 
 func (job *uploadJob) summary() map[string]any {
-	job.mu.Lock()
-	defer job.mu.Unlock()
+	job.metaMu.Lock()
+	defer job.metaMu.Unlock()
 
 	return map[string]any{
 		"id":          job.ID,
@@ -172,12 +120,8 @@ func (job *uploadJob) summary() map[string]any {
 		"status":      job.status,
 		"error":       job.errorMsg,
 		"errorDetail": job.errorDetail,
-		"logCount":    len(job.logs),
+		"logCount":    job.logCount(),
 	}
-}
-
-func sanitizeLogMessage(message string) string {
-	return strings.ReplaceAll(message, "\n", " ")
 }
 
 func startProvisioningJob(job *uploadJob, req db.CreateCompetitionRequest) {

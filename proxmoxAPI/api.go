@@ -81,3 +81,22 @@ func (api *ProxmoxAPI) NextNode() *proxmox.Node {
 	api.nodeRotator = (api.nodeRotator + 1) % len(api.Nodes)
 	return api.Nodes[api.nodeRotator]
 }
+
+func (api *ProxmoxAPI) NodeByName(name string) *proxmox.Node {
+	if name == "" {
+		return nil
+	}
+
+	for _, node := range api.Nodes {
+		if node != nil && node.Name == name {
+			return node
+		}
+	}
+
+	node, err := api.client.Node(api.bg, name)
+	if err != nil {
+		return nil
+	}
+	api.Nodes = append(api.Nodes, node)
+	return node
+}

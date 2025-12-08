@@ -9,7 +9,7 @@ if ping -c 1 -W 1 "$KOTH_IP" &> /dev/null; then
 fi
 
 # Prometheus Exporter Running? +1, -1
-if curl -s --max-time 2 "http://$KOTH_IP:9100/metrics" | grep -q "Processor"; then
+if curl -s --max-time 10 "http://$KOTH_IP:9100/metrics" | grep -q "Processor"; then
     CHECK_exporter=true
 fi
 

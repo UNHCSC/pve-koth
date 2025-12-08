@@ -46,8 +46,17 @@ func CreateApp() (app *fiber.App) {
 	competitions.Get(":competitionID/artifacts/*", apiGetArtifactFile)
 	competitions.Post(":competitionID/teardown", apiTeardownCompetition)
 	competitions.Post(":competitionID/scoring", apiSetCompetitionScoring)
+	competitions.Get(":competitionID/teams", apiGetCompetitionTeams)
+	competitions.Post(":competitionID/teams/:teamID/score", apiModifyTeamScore)
 	competitions.Post("/upload", apiCreateCompetition)
 	competitions.Get("/upload/:jobID/stream", apiStreamUploadJob)
+
+	var containersAPI = api.Group("/containers")
+	containersAPI.Get("/", apiListContainers)
+	containersAPI.Get("", apiListContainers)
+	containersAPI.Post("/power", apiSetContainerPower)
+	containersAPI.Post("/redeploy", apiRedeployContainers)
+	containersAPI.Get("/redeploy/:jobID/stream", apiStreamRedeployJob)
 
 	var scoreboard = api.Group("/scoreboard")
 	scoreboard.Get("/", apiGetScoreboard)

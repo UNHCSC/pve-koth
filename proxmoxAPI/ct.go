@@ -3,6 +3,7 @@ package proxmoxAPI
 import (
 	"fmt"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -184,7 +185,7 @@ func (api *ProxmoxAPI) BulkStop(ids []int) (err error) {
 
 	for _, ct := range containers {
 		var task *proxmox.Task
-		if task, err = ct.Stop(api.bg); err != nil {
+		if task, err = ct.Stop(api.bg); err != nil && !strings.Contains(strings.ToLower(err.Error()), "not running") {
 			err = fmt.Errorf("failed to stop container %d: %w", ct.VMID, err)
 			return
 		}
@@ -221,6 +222,23 @@ func (api *ProxmoxAPI) BulkDelete(ids []int) (err error) {
 func (api *ProxmoxAPI) CTActionWithRetries(action func(ct *proxmox.Container) error, ct *proxmox.Container, numRetries int) (err error) {
 	for i := range numRetries + 1 {
 		if err = action(ct); err == nil {
+			if i > 0 {
+				// fmt.Printf("Action on container %d succeeded after %d retries.\n", ct.VMID, i-1)
+			}
+
+			return
+		}
+
+		// fmt.Printf("Action on container %d failed: %v. Retrying (%d/%d)...\n", ct.VMID, err, i+1, numRetries)
+		time.Sleep(time.Second * (time.Duration(i) + 1))
+	}
+
+	return
+}
+
+func (api *ProxmoxAPI) BulkCTActionWithRetries(action func(ids []int) (err error), ids []int, numRetries int) (err error) {
+	for i := range numRetries + 1 {
+		if err = action(ids); err == nil {
 			if i > 0 {
 				// fmt.Printf("Action on container %d succeeded after %d retries.\n", ct.VMID, i-1)
 			}
