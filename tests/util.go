@@ -2,6 +2,7 @@ package tests
 
 import (
 	"fmt"
+	"maps"
 	"net"
 	"os"
 	"strings"
@@ -45,7 +46,7 @@ func initProxmox(t *testing.T) (api *proxmoxAPI.ProxmoxAPI) {
 	return
 }
 
-func initWebServer() (reqToken func() (token string), revToken func(token string)) {
+func initWebServer(t *testing.T, port string) (reqToken func() (token string), revToken func(token string)) {
 	var tokens map[string]bool = map[string]bool{}
 
 	reqToken = func() (token string) {
@@ -65,12 +66,14 @@ func initWebServer() (reqToken func() (token string), revToken func(token string
 			return c.Status(fiber.StatusUnauthorized).SendString("Unauthorized")
 		}
 
+		t.Logf("Fiber server authorized request for path: %s", c.Path())
+
 		return c.Next()
 	})
 
 	app.Static("/", "./public")
 
-	go app.Listen(":8080")
+	go app.Listen(fmt.Sprintf("0.0.0.0:%s", port))
 
 	return
 }
@@ -177,17 +180,115 @@ type ProxmoxTestingEnvironment struct {
 	revToken           func(token string)
 	pubKey, privKey    string
 	cleanSSHHandler    func() (err error)
+	sshConnections     []*ssh.SSHConnection
+	webPort            string
 }
 
-func proxmoxEnvironmentSetup(t *testing.T, needsSSHKeys, needsWebserver bool, containerHostnames []string) (env *ProxmoxTestingEnvironment, err error) {
+func (tenv *ProxmoxTestingEnvironment) Cleanup(t *testing.T) {
+	var err error
+
+	// Clean up containers
+	for _, cleanup := range tenv.cleanups {
+		if err = cleanup(); err != nil {
+			t.Fatalf("failed to clean up container: %v", err)
+		}
+	}
+
+	// Clean up SSH keys
+	if tenv.cleanSSHHandler != nil {
+		if err = tenv.cleanSSHHandler(); err != nil {
+			t.Fatalf("failed to clean up SSH keys: %v", err)
+		}
+	}
+
+	// Clean up SSH connections
+	for _, conn := range tenv.sshConnections {
+		if conn == nil {
+			continue
+		}
+
+		if err = conn.Close(); err != nil && !strings.Contains(strings.ToLower(err.Error()), "eof") {
+			t.Fatalf("failed to close SSH connection: %v", err)
+		}
+	}
+}
+
+func (tenv *ProxmoxTestingEnvironment) ConnectSSH(idx int) (conn *ssh.SSHConnection, err error) {
+	if idx < 0 || idx >= len(tenv.results) {
+		err = fmt.Errorf("index out of range")
+		return
+	}
+
+	if conn, err = ssh.ConnectOnceReadyWithRetry("root", tenv.ips[idx], 22, 5, ssh.WithPrivateKey([]byte(tenv.privKey))); err != nil {
+		return
+	}
+
+	tenv.sshConnections[idx] = conn
+	return
+}
+
+func (tenv *ProxmoxTestingEnvironment) ResetSSH(idx int) (err error) {
+	if idx < 0 || idx >= len(tenv.results) {
+		err = fmt.Errorf("index out of range")
+		return
+	}
+
+	if tenv.sshConnections[idx] == nil {
+		err = fmt.Errorf("SSH connection not established for container at index %d", idx)
+		return
+	}
+
+	err = tenv.sshConnections[idx].Reset()
+	return
+}
+
+func (tenv *ProxmoxTestingEnvironment) EnvsFor(idx int, overwrites ...map[string]any) (envs map[string]any, err error) {
+	if idx < 0 || idx >= len(tenv.results) {
+		err = fmt.Errorf("index out of range")
+		return
+	}
+
+	envs = map[string]any{
+		"KOTH_COMP_ID":       "test_competition",
+		"KOTH_TEAM_ID":       fmt.Sprintf("%d", idx+1),
+		"KOTH_HOSTNAME":      tenv.containerHostnames[idx],
+		"KOTH_IP":            tenv.ips[idx],
+		"KOTH_PUBLIC_FOLDER": fmt.Sprintf("http://%s", net.JoinHostPort(ssh.MustLocalIP(), tenv.webPort)),
+		"KOTH_ACCESS_TOKEN":  tenv.reqToken(),
+	}
+
+	for _, overwrite := range overwrites {
+		maps.Copy(envs, overwrite)
+	}
+
+	return
+}
+
+func (tenv *ProxmoxTestingEnvironment) ExecuteOn(idx int, command string) (status int, output string, err error) {
+	if idx < 0 || idx >= len(tenv.results) {
+		err = fmt.Errorf("index out of range")
+		return
+	}
+
+	if tenv.sshConnections[idx] == nil {
+		err = fmt.Errorf("SSH connection not established for container at index %d", idx)
+		return
+	}
+
+	var bytesOut []byte
+	status, bytesOut, err = tenv.sshConnections[idx].SendWithOutput(command)
+	output = string(bytesOut)
+	return
+}
+
+func proxmoxEnvironmentSetup(t *testing.T, needsSSHKeys, needsWebserver bool, containerHostnames []string, useBulkOperations bool) (env *ProxmoxTestingEnvironment, err error) {
 	env = &ProxmoxTestingEnvironment{
 		nodeRotator:        0,
 		containerHostnames: containerHostnames,
+		sshConnections:     make([]*ssh.SSHConnection, len(containerHostnames)),
 	}
 
-	if env.api, err = initProxmox(t), nil; err != nil {
-		return
-	}
+	env.api = initProxmox(t)
 
 	if needsSSHKeys {
 		var sshPath string = fmt.Sprintf("%s/tmpssh%d", os.TempDir(), time.Now().UnixNano())
@@ -206,7 +307,48 @@ func proxmoxEnvironmentSetup(t *testing.T, needsSSHKeys, needsWebserver bool, co
 	}
 
 	if needsWebserver {
-		env.reqToken, env.revToken = initWebServer()
+		if _, env.webPort, err = net.SplitHostPort(config.Config.WebServer.Address); err != nil {
+			t.Fatalf("failed to parse web server address: %v", err)
+		}
+
+		env.reqToken, env.revToken = initWebServer(t, env.webPort)
+	}
+
+	// Allocate IPs
+	if env.ips, err = getIPs(t, len(containerHostnames)); err != nil {
+		return
+	}
+
+	// Prepare container configs
+	for i, hostname := range containerHostnames {
+		var conf *proxmoxAPI.ContainerCreateOptions = provisionConf(env.ips[i], hostname, env.pubKey)
+		env.configs = append(env.configs, conf)
+	}
+
+	// Create containers
+	if useBulkOperations {
+		var bulkResults []*proxmoxAPI.ProxmoxAPIBulkCreateResult
+		if bulkResults, err = env.api.BulkCreateContainersConcurrent(env.api.Nodes, env.configs, 1+len(containerHostnames)/4); err != nil {
+			t.Fatalf("failed to bulk create containers: %v", err)
+		}
+
+		for _, bulkResult := range bulkResults {
+			env.results = append(env.results, bulkResult.Result)
+			env.cleanups = append(env.cleanups, bulkResult.Cleanup)
+		}
+	} else {
+		for _, conf := range env.configs {
+			var node *proxmox.Node = env.api.Nodes[env.nodeRotator%len(env.api.Nodes)]
+			env.nodeRotator++
+
+			var result *proxmoxAPI.ProxmoxAPICreateResult
+			var cleanup func() (err error)
+
+			result, cleanup = container(t, env.api, node, conf)
+
+			env.results = append(env.results, result)
+			env.cleanups = append(env.cleanups, cleanup)
+		}
 	}
 
 	return
@@ -222,4 +364,22 @@ func cleanup(t *testing.T) {
 	if err = os.Remove(db.DatabaseFilePath()); err != nil {
 		t.Fatalf("Failed to remove test database file: %v", err)
 	}
+}
+
+func readPublicFileContents(fileName string) (contents string, err error) {
+	var data []byte
+	if data, err = os.ReadFile(fmt.Sprintf("./public/%s", fileName)); err != nil {
+		return
+	}
+
+	contents = string(data)
+	return
+}
+
+func genHostnamesHelper(prefix string, count int) (hostnames []string) {
+	for i := range count {
+		hostnames = append(hostnames, fmt.Sprintf("%s%d", prefix, i+1))
+	}
+
+	return
 }

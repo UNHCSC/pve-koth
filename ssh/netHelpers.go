@@ -154,3 +154,19 @@ func FindOpenIPs(ips []net.IP, numNeeded int) (openIPs []net.IP, err error) {
 
 	return
 }
+
+func FindUnusedOpenLocalPort(min, max int) (port int, err error) {
+	for p := min; p <= max; p++ {
+		var ln net.Listener
+		if ln, err = net.Listen("tcp", net.JoinHostPort("0.0.0.0", fmt.Sprint(p))); err != nil {
+			continue
+		}
+
+		ln.Close()
+		port = p
+		return
+	}
+
+	err = fmt.Errorf("no unused open ports found in range %d-%d", min, max)
+	return
+}
