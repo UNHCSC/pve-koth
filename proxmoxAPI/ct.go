@@ -33,8 +33,12 @@ func (api *ProxmoxAPI) Container(ctID int) (ct *proxmox.Container, err error) {
 
 func (api *ProxmoxAPI) StartContainer(ct *proxmox.Container) (err error) {
 	var task *proxmox.Task
-	if task, err = ct.Start(api.bg); err == nil && !strings.Contains(strings.ToLower(err.Error()), "already running") {
+	if task, err = ct.Start(api.bg); err == nil {
 		err = task.Wait(api.bg, time.Second, time.Minute*3)
+	}
+
+	if err != nil && strings.Contains(strings.ToLower(err.Error()), "already running") {
+		err = nil
 	}
 
 	return
@@ -42,8 +46,12 @@ func (api *ProxmoxAPI) StartContainer(ct *proxmox.Container) (err error) {
 
 func (api *ProxmoxAPI) StopContainer(ct *proxmox.Container) (err error) {
 	var task *proxmox.Task
-	if task, err = ct.Stop(api.bg); err == nil && !strings.Contains(strings.ToLower(err.Error()), "not running") {
+	if task, err = ct.Stop(api.bg); err == nil {
 		err = task.Wait(api.bg, time.Second, time.Minute*3)
+	}
+
+	if err != nil && strings.Contains(strings.ToLower(err.Error()), "not running") {
+		err = nil
 	}
 
 	return
