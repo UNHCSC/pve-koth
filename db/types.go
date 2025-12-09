@@ -79,7 +79,7 @@ func (l *flexibleStringList) UnmarshalJSON(data []byte) error {
 
 type Team struct {
 	ID           int64     `json:"id" gomysql:"id,primary,increment"`
-	Name         string    `json:"name" gomysql:"name,unique"`
+	Name         string    `json:"name" gomysql:"name"`
 	Score        int       `json:"score" gomysql:"score"`
 	ContainerIDs []int64   `json:"containerIDs" gomysql:"container_ids"`
 	LastUpdated  time.Time `json:"lastUpdated" gomysql:"last_updated"`

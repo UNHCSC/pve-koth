@@ -33,7 +33,7 @@ func (api *ProxmoxAPI) Container(ctID int) (ct *proxmox.Container, err error) {
 
 func (api *ProxmoxAPI) StartContainer(ct *proxmox.Container) (err error) {
 	var task *proxmox.Task
-	if task, err = ct.Start(api.bg); err == nil {
+	if task, err = ct.Start(api.bg); err == nil && !strings.Contains(strings.ToLower(err.Error()), "already running") {
 		err = task.Wait(api.bg, time.Second, time.Minute*3)
 	}
 
@@ -42,7 +42,7 @@ func (api *ProxmoxAPI) StartContainer(ct *proxmox.Container) (err error) {
 
 func (api *ProxmoxAPI) StopContainer(ct *proxmox.Container) (err error) {
 	var task *proxmox.Task
-	if task, err = ct.Stop(api.bg); err == nil {
+	if task, err = ct.Stop(api.bg); err == nil && !strings.Contains(strings.ToLower(err.Error()), "not running") {
 		err = task.Wait(api.bg, time.Second, time.Minute*3)
 	}
 
@@ -136,6 +136,10 @@ func (api *ProxmoxAPI) bulkJob(tasks []*proxmox.Task, bucketSize int) (err error
 		var wg sync.WaitGroup
 
 		for _, task := range bucket {
+			if task == nil {
+				continue
+			}
+
 			wg.Add(1)
 
 			go func(t *proxmox.Task) {
@@ -163,7 +167,7 @@ func (api *ProxmoxAPI) BulkStart(ids []int) (err error) {
 
 	for _, ct := range containers {
 		var task *proxmox.Task
-		if task, err = ct.Start(api.bg); err != nil {
+		if task, err = ct.Start(api.bg); err != nil && !strings.Contains(strings.ToLower(err.Error()), "already running") {
 			err = fmt.Errorf("failed to start container %d: %w", ct.VMID, err)
 			return
 		}

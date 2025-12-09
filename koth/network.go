@@ -62,7 +62,11 @@ func maxTeamsPerCompetition() int {
 		return 0
 	}
 
-	return 1 << diff
+	var total = 1 << diff
+	if total <= 1 {
+		return 0
+	}
+	return total - 1
 }
 
 func teamSubnetBaseIP(compSubnet *net.IPNet, teamIndex int) (uint32, error) {
@@ -83,7 +87,7 @@ func teamSubnetBaseIP(compSubnet *net.IPNet, teamIndex int) (uint32, error) {
 	var teamPrefix = config.Config.Network.TeamSubnetPrefix
 	var step = uint32(1) << uint32(32-teamPrefix)
 
-	return base + uint32(teamIndex)*step, nil
+	return base + uint32(teamIndex+1)*step, nil
 }
 
 func hostIPWithinSubnet(subnetBase uint32, subnetPrefix int, hostOffset int) (net.IP, error) {

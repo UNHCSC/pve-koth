@@ -9,7 +9,7 @@ if systemctl is-active --quiet nginx; then
 fi
 
 # Website Content Correct? (flag should be the body)
-if curl -s --max-time 2 "http://localhost" | grep -q "flag"; then
+if curl -s --max-time 10 "http://localhost" | grep -q "flag"; then
     CHECK_content=true
 fi
 
