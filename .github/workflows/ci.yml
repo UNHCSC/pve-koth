@@ -28,7 +28,7 @@ jobs:
           cache: npm
 
       - name: Install dependencies
-        run: npm i
+        run: npm i --no-audit --no-fund
 
       - name: Build frontend assets
         run: npm run build
