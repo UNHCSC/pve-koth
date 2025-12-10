@@ -3,6 +3,7 @@ package koth
 import (
 	"fmt"
 	"net"
+	"strings"
 
 	"github.com/UNHCSC/pve-koth/config"
 	"github.com/UNHCSC/pve-koth/db"
@@ -136,4 +137,31 @@ func uint32ToIP(value uint32) net.IP {
 		byte(value>>8),
 		byte(value),
 	).To4()
+}
+
+// TeamSubnetCIDR returns the CIDR block assigned to a team in a competition.
+func TeamSubnetCIDR(comp *db.Competition, teamIndex int) (string, error) {
+	if comp == nil {
+		return "", fmt.Errorf("competition is nil")
+	}
+	if strings.TrimSpace(comp.NetworkCIDR) == "" {
+		return "", fmt.Errorf("competition %s missing network CIDR", comp.SystemID)
+	}
+
+	_, compNet, err := net.ParseCIDR(comp.NetworkCIDR)
+	if err != nil {
+		return "", fmt.Errorf("parse competition network: %w", err)
+	}
+
+	subnetBase, err := teamSubnetBaseIP(compNet, teamIndex)
+	if err != nil {
+		return "", err
+	}
+
+	subnet := buildSubnet(subnetBase, config.Config.Network.TeamSubnetPrefix)
+	if subnet == nil {
+		return "", fmt.Errorf("failed to build subnet for team %d", teamIndex)
+	}
+
+	return subnet.String(), nil
 }

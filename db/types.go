@@ -84,6 +84,7 @@ type Team struct {
 	ContainerIDs []int64   `json:"containerIDs" gomysql:"container_ids"`
 	LastUpdated  time.Time `json:"lastUpdated" gomysql:"last_updated"`
 	CreatedAt    time.Time `json:"createdAt" gomysql:"created_at"`
+	NetworkCIDR  string    `json:"networkCIDR" gomysql:"network_cidr"`
 }
 
 type Container struct {

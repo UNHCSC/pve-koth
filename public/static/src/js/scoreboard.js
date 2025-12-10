@@ -64,12 +64,14 @@ function renderRankingRow(team, index) {
     const summary = computeTeamCheckSummary(team);
     const teamKey = team.id ?? index;
     const scoreValue = Number.isFinite(Number(team.score)) ? Number(team.score) : 0;
+    const networkLabel = team.networkCIDR ? escapeHTML(team.networkCIDR) : "—";
     return `<tr class="${rowClass} score-row">
         <td class="px-2 py-1.5 text-xs font-semibold text-slate-200">#${index + 1}</td>
         <td class="px-2 py-1.5">
             <p class="text-white text-sm font-semibold">${escapeHTML(team.name)}</p>
             <p class="text-[0.65rem] text-slate-400">Updated ${formatDate(team.lastUpdated)}</p>
         </td>
+        <td class="px-2 py-1.5 text-xs text-slate-300">${networkLabel}</td>
         <td class="px-2 py-1.5 text-right text-base font-bold text-white">
             <span class="score-value" data-team-id="team-${teamKey}" data-target="${scoreValue}">${scoreValue}</span>
         </td>
@@ -267,7 +269,7 @@ function renderTable() {
 
     const rows = selected.teams.length
         ? selected.teams.map((team, index) => renderRankingRow(team, index)).join("")
-        : `<tr><td class="px-3 py-4 text-center text-slate-300" colspan="4">Scores are not ready yet.</td></tr>`;
+        : `<tr><td class="px-3 py-4 text-center text-slate-300" colspan="5">Scores are not ready yet.</td></tr>`;
 
     const scoringBadge = selected.scoringActive
         ? '<span class="inline-flex items-center rounded-full border border-emerald-400/40 bg-emerald-500/10 px-2 py-0.5 text-[0.65rem] font-semibold uppercase tracking-[0.2em] text-emerald-200">Scoring active</span>'
@@ -296,6 +298,7 @@ function renderTable() {
                 <p class="text-xs uppercase tracking-[0.4em] text-slate-400">${selected.isPrivate ? "Private" : "Public"} event</p>
                 <h2 class="text-xl font-semibold text-white">${escapeHTML(selected.name)}</h2>
                 <p class="text-xs text-slate-300">${escapeHTML(selected.description || "No description provided.")}</p>
+                <p class="text-xs text-slate-300">Network: ${escapeHTML(selected.networkCIDR || "Not assigned")}</p>
             </div>
             <div class="text-xs text-slate-300 text-right space-y-1">
                 <p>${selected.teamCount} teams · ${selected.containerCount} containers</p>
@@ -311,6 +314,7 @@ function renderTable() {
                     <tr class="text-xs uppercase tracking-[0.3em] text-slate-400">
                         <th class="px-2 py-1.5">Rank</th>
                         <th class="px-2 py-1.5">Team</th>
+                        <th class="px-2 py-1.5">Network</th>
                         <th class="px-2 py-1.5 text-right">Score</th>
                         <th class="px-2 py-1.5 text-right">Checks</th>
                     </tr>

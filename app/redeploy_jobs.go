@@ -13,6 +13,7 @@ import (
 type redeployJob struct {
 	*streamJob
 	containerIDs []int64
+	startAfter   bool
 }
 
 var (
@@ -20,10 +21,11 @@ var (
 	redeployJobsMu sync.RWMutex
 )
 
-func newRedeployJob(user *auth.AuthUser, ids []int64) *redeployJob {
+func newRedeployJob(user *auth.AuthUser, ids []int64, startAfter bool) *redeployJob {
 	var job = &redeployJob{
 		streamJob:    newStreamJob("redeploy_job", uploadActor(user)),
 		containerIDs: append([]int64(nil), ids...),
+		startAfter:   startAfter,
 	}
 
 	registerRedeployJob(job)
@@ -74,18 +76,18 @@ func (job *redeployJob) Successf(format string, args ...any) {
 	job.logMessage(fmt.Sprintf(format, args...))
 }
 
-func startRedeployJob(job *redeployJob, ids []int64) {
-	markContainersRedeploying(ids)
+func startRedeployJob(job *redeployJob) {
+	markContainersRedeploying(job.containerIDs)
 	go func() {
 		defer job.markDone()
-		job.Statusf("Redeploy job started for containers: %v", job.containerIDs)
-		if err := koth.RedeployContainersWithLogger(ids, job); err != nil {
+		job.Statusf("Redeploy job started for containers: %v (start when finished: %t)", job.containerIDs, job.startAfter)
+		if err := koth.RedeployContainersWithLogger(job.containerIDs, job, job.startAfter); err != nil {
 			job.Errorf("Redeploy failed: %v", err)
 		} else {
 			job.Successf("Redeploy completed successfully")
 		}
 
-		if refreshErr := koth.RefreshContainerStatuses(ids); refreshErr != nil {
+		if refreshErr := koth.RefreshContainerStatuses(job.containerIDs); refreshErr != nil {
 			job.Errorf("failed to refresh container statuses: %v", refreshErr)
 		}
 	}()

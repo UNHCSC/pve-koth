@@ -13,6 +13,10 @@ const redeployTarget = redeployModal?.querySelector("[data-redeploy-target]");
 const redeployLog = document.getElementById("redeploy-log");
 const redeployOverlay = document.getElementById("redeploy-overlay");
 const redeployCloseButton = document.getElementById("close-redeploy");
+const redeployStartCheckbox = redeployModal?.querySelector("[data-redeploy-start-checkbox]");
+const redeployConfirmButton = redeployModal?.querySelector("[data-redeploy-confirm]");
+const redeployConfirmDefaultText =
+    redeployConfirmButton?.dataset.defaultLabel?.trim() || redeployConfirmButton?.textContent?.trim() || "Redeploy";
 let redeployEventSource = null;
 let redeployStreamCompID = "";
 
@@ -344,6 +348,19 @@ function resetRedeployModalState() {
     }
     updateRedeployStatus();
     closeRedeployStream();
+    if (redeployConfirmButton) {
+        redeployConfirmButton.disabled = false;
+        redeployConfirmButton.textContent = redeployConfirmDefaultText;
+    }
+    if (redeployStartCheckbox) {
+        redeployStartCheckbox.checked = false;
+        redeployStartCheckbox.disabled = false;
+    }
+    if (redeployModal) {
+        delete redeployModal.dataset.containerId;
+        delete redeployModal.dataset.containerLabel;
+        delete redeployModal.dataset.compId;
+    }
 }
 
 function appendRedeployLog(message) {
@@ -405,23 +422,76 @@ function startRedeployLogStream(jobID, compID = "") {
     };
 }
 
-function openRedeployModal(label, id) {
-    if (!redeployModal) return;
-    resetRedeployModalState();
-    setRedeployTargetLabel(`${label} (#${id})`);
-    redeployModal.classList.remove("hidden");
+function openRedeployModal(label, id, compID = "") {
+	if (!redeployModal) return;
+	resetRedeployModalState();
+	redeployModal.dataset.containerId = String(id);
+	redeployModal.dataset.containerLabel = label;
+	if (compID) {
+		redeployModal.dataset.compId = compID;
+	}
+	setRedeployTargetLabel(`${label} (#${id})`);
+	redeployModal.classList.remove("hidden");
+}
+
+async function handleRedeployConfirm() {
+	if (!redeployModal || !redeployConfirmButton) return;
+	const id = Number(redeployModal.dataset.containerId);
+	if (!Number.isFinite(id)) return;
+	const compID = redeployModal.dataset.compId || "";
+	const containerLabel = redeployModal.dataset.containerLabel || `CT-${id}`;
+	const startAfter = Boolean(redeployStartCheckbox?.checked);
+
+	redeployConfirmButton.disabled = true;
+	redeployConfirmButton.textContent = "Redeploying…";
+	if (redeployStartCheckbox) {
+		redeployStartCheckbox.disabled = true;
+	}
+
+	appendRedeployLog(`Queued redeploy for ${containerLabel}.`);
+	updateRedeployStatus("Redeploy in progress...", "text-amber-400");
+
+	try {
+		const response = await fetch("/api/containers/redeploy", {
+			method: "POST",
+			credentials: "include",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ ids: [id], startAfter })
+		});
+		const payload = await response.json().catch(() => ({}));
+		if (!response.ok) {
+			throw new Error(payload?.error || payload?.message || "Failed to redeploy container");
+		}
+		const successMessage = payload?.message || "Container redeployed.";
+		appendRedeployLog(successMessage);
+		if (payload?.jobID) {
+			startRedeployLogStream(payload.jobID, compID);
+		} else {
+			updateRedeployStatus("Redeploy in progress...", "text-amber-400");
+		}
+	} catch (error) {
+		const message = error.message || "Unable to redeploy container.";
+		appendRedeployLog(message);
+		closeRedeployStream();
+		updateRedeployStatus("Redeploy failed", "text-rose-500");
+		window.alert(message);
+	} finally {
+		redeployConfirmButton.disabled = false;
+		redeployConfirmButton.textContent = redeployConfirmDefaultText;
+	}
 }
 
 function closeRedeployModal() {
-    if (!redeployModal) return;
-    redeployModal.classList.add("hidden");
-    setRedeployTargetLabel("Awaiting selection");
+	if (!redeployModal) return;
+	redeployModal.classList.add("hidden");
+	setRedeployTargetLabel("Awaiting selection");
     updateRedeployStatus();
     closeRedeployStream();
 }
 
 redeployOverlay?.addEventListener("click", closeRedeployModal);
 redeployCloseButton?.addEventListener("click", closeRedeployModal);
+redeployConfirmButton?.addEventListener("click", handleRedeployConfirm);
 
 function setStats({ total = 0, publicCount = 0, privateCount = 0 } = {}) {
     if (!statContainer) return;
@@ -452,6 +522,7 @@ function renderCompetitions(competitions = []) {
 			const scoringBadge = comp.scoringActive
 				? '<span class="ml-2 rounded-full bg-emerald-500/20 text-emerald-200 text-xs px-2 py-0.5">Scoring active</span>'
                 : '<span class="ml-2 rounded-full bg-amber-500/20 text-amber-100 text-xs px-2 py-0.5">Scoring paused</span>';
+            const networkLabel = comp.networkCIDR ? escapeHTML(comp.networkCIDR) : "Not assigned";
 
             const actions = `
                 <div class="flex flex-col items-end gap-2 mt-2">
@@ -481,6 +552,7 @@ function renderCompetitions(competitions = []) {
 					<p class="text-lg font-semibold text-white">${escapeHTML(comp.name)}${badge}${scoringBadge}</p>
 					<p class="text-sm text-slate-300">${escapeHTML(comp.description || "No description")}</p>
 					<p class="text-xs text-slate-400 mt-1">Hosted by ${escapeHTML(comp.host || "Unknown")}</p>
+					<p class="text-xs text-slate-400 mt-1">Network: ${networkLabel}</p>
 				</div>
 				<div class="text-sm text-right text-slate-300">
 					<p>${comp.teamCount} teams · ${comp.containerCount} containers</p>
@@ -695,6 +767,7 @@ function renderCompetitionTeamPanel(comp) {
 							<tr class="text-xs uppercase tracking-[0.2em] text-slate-400 border-b border-white/10">
 								<th class="py-2 pr-3 text-left w-10"></th>
 								<th class="py-2 pr-3 text-left">Team</th>
+								<th class="py-2 pr-3 text-left">Network</th>
 								<th class="py-2 pr-3 text-left">Score</th>
 								<th class="py-2 text-left">Updated</th>
 							</tr>
@@ -1000,6 +1073,7 @@ function renderCompetitionTeams(compID) {
 			const name = escapeHTML(team.name || `Team ${team.id}`);
 			const score = Number.isFinite(Number(team.score)) ? Number(team.score) : 0;
 			const updated = formatRelativeTime(team.lastUpdated);
+			const networkLabel = team.network ? escapeHTML(team.network) : "—";
 			return `<tr class="border-b border-white/5 last:border-b-0">
 				<td class="py-3 pr-3 align-top">
 					<input type="checkbox" class="h-4 w-4 rounded border-white/30 bg-slate-800/80" data-team-select value="${team.id}" ${checked ? "checked" : ""}>
@@ -1007,6 +1081,9 @@ function renderCompetitionTeams(compID) {
 				<td class="py-3 pr-3 align-top">
 					<p class="text-slate-100 font-semibold">${name}</p>
 					<p class="text-xs text-slate-400">ID ${team.id}</p>
+				</td>
+				<td class="py-3 pr-3 align-top">
+					<p class="text-slate-100 font-semibold">${networkLabel}</p>
 				</td>
 				<td class="py-3 pr-3 align-top">
 					<p class="text-slate-100 font-semibold">${score}</p>
@@ -1044,7 +1121,8 @@ async function loadCompetitionTeams(compID) {
 				id: Number(entry.id),
 				name: entry.name || `Team ${entry.id}`,
 				score: Number.isFinite(Number(entry.score)) ? Number(entry.score) : 0,
-				lastUpdated: entry.lastUpdated || ""
+				lastUpdated: entry.lastUpdated || "",
+				network: entry.networkCIDR || ""
 			});
 		}
 
@@ -1307,7 +1385,7 @@ async function loadDashboard() {
     }
 }
 
-async function handleContainerRedeploy(button) {
+function handleContainerRedeploy(button) {
 	const panel = button.closest("[data-container-panel]");
 	if (!panel) return;
 	const compID = panel.dataset.compId || "";
@@ -1315,47 +1393,8 @@ async function handleContainerRedeploy(button) {
 	if (!Number.isFinite(id)) return;
 
 	const containerLabel = button.dataset.containerLabel || `CT-${id}`;
-
-	if (!window.confirm("Redeploy this container? This will delete and recreate it using the original configuration.")) {
-		return;
-	}
-
-	openRedeployModal(containerLabel, id);
-	appendRedeployLog(`Queued redeploy for ${containerLabel}.`);
-	updateRedeployStatus("Redeploy in progress...", "text-amber-400");
-
-	const previousText = button.textContent;
-	button.disabled = true;
-	button.textContent = "Redeploying…";
-
-	try {
-		const response = await fetch("/api/containers/redeploy", {
-			method: "POST",
-			credentials: "include",
-			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify({ ids: [id] })
-		});
-		const payload = await response.json().catch(() => ({}));
-		if (!response.ok) {
-			throw new Error(payload?.error || payload?.message || "Failed to restore container");
-		}
-		const successMessage = payload?.message || "Container redeployed.";
-		appendRedeployLog(successMessage);
-		if (payload?.jobID) {
-			startRedeployLogStream(payload.jobID, compID);
-		} else {
-			updateRedeployStatus("Redeploy in progress...", "text-amber-400");
-		}
-	} catch (error) {
-		const message = error.message || "Unable to redeploy container.";
-		appendRedeployLog(message);
-		closeRedeployStream();
-		updateRedeployStatus("Redeploy failed", "text-rose-500");
-		window.alert(message);
-	} finally {
-		button.textContent = previousText;
-		button.disabled = false;
-	}
+	if (!redeployModal) return;
+	openRedeployModal(containerLabel, id, compID);
 }
 
 function handleListClick(event) {

@@ -118,6 +118,18 @@
                 <div class="p-6 space-y-4 text-slate-200">
                     <p data-redeploy-status class="text-sm font-semibold text-slate-300">Waiting to start</p>
                     <pre id="redeploy-log" class="hidden mt-3 p-3 bg-slate-950 text-emerald-200 rounded-lg border border-white/10 max-h-48 overflow-auto text-sm w-full"></pre>
+                    <div class="space-y-3">
+                        <label class="inline-flex items-center gap-2 text-slate-300 text-sm">
+                            <input type="checkbox" data-redeploy-start-checkbox class="h-4 w-4 rounded border-white/30 bg-slate-800/80 text-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-400">
+                            <span>Start when finished</span>
+                        </label>
+                        <div class="flex justify-end">
+                            <button type="button" data-redeploy-confirm data-default-label="Redeploy container"
+                                class="inline-flex items-center rounded-2xl bg-blue-500 px-4 py-2 text-xs font-semibold uppercase tracking-[0.2em] text-white hover:bg-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-300">
+                                Redeploy container
+                            </button>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>

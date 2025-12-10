@@ -252,6 +252,18 @@ func CreateNewCompWithLogger(request *db.CreateCompetitionRequest, logSink Progr
 	)
 
 	for teamIndex := 0; teamIndex < request.NumTeams; teamIndex++ {
+		var teamSubnetBase uint32
+		if teamSubnetBase, err = teamSubnetBaseIP(compSubnet, teamIndex); err != nil {
+			localLog.Errorf("Failed to allocate subnet for team %d: %v\n", teamIndex+1, err)
+			return
+		}
+
+		teamSubnet := buildSubnet(teamSubnetBase, config.Config.Network.TeamSubnetPrefix)
+		if teamSubnet == nil {
+			localLog.Errorf("Failed to determine subnet for team %d\n", teamIndex+1)
+			return
+		}
+
 		var team *db.Team = &db.Team{
 			ID:           0,
 			Name:         fmt.Sprintf("Team %d", teamIndex+1),
@@ -259,6 +271,7 @@ func CreateNewCompWithLogger(request *db.CreateCompetitionRequest, logSink Progr
 			ContainerIDs: []int64{},
 			LastUpdated:  time.Now(),
 			CreatedAt:    time.Now(),
+			NetworkCIDR:  teamSubnet.String(),
 		}
 
 		if err = db.Teams.Insert(team); err != nil {
@@ -273,12 +286,6 @@ func CreateNewCompWithLogger(request *db.CreateCompetitionRequest, logSink Progr
 			ipOrder:   make([]string, 0),
 		}
 		teamLocks[team.ID] = &sync.Mutex{}
-
-		var teamSubnetBase uint32
-		if teamSubnetBase, err = teamSubnetBaseIP(compSubnet, teamIndex); err != nil {
-			localLog.Errorf("Failed to allocate subnet for team %d: %v\n", teamIndex+1, err)
-			return
-		}
 
 		for templateOrder, templateCfg := range request.TeamContainerConfigs {
 			var hostIP net.IP

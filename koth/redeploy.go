@@ -17,11 +17,12 @@ import (
 
 // RedeployContainers deletes and rebuilds the requested containers using the original competition plan.
 func RedeployContainers(ids []int64) error {
-	return RedeployContainersWithLogger(ids, containerLog)
+	return RedeployContainersWithLogger(ids, containerLog, false)
 }
 
 // RedeployContainersWithLogger behaves like RedeployContainers but routes logs through the provided logger.
-func RedeployContainersWithLogger(ids []int64, log ProgressLogger) error {
+// The startAfter flag will restart each container after redeployment if true.
+func RedeployContainersWithLogger(ids []int64, log ProgressLogger, startAfter bool) error {
 	normalized := normalizeContainerIDs(ids)
 	if len(normalized) == 0 {
 		return fmt.Errorf("no container IDs supplied")
@@ -38,7 +39,7 @@ func RedeployContainersWithLogger(ids []int64, log ProgressLogger) error {
 
 	for _, id := range normalized {
 		localLog.Statusf("Redeploying container %d...", id)
-		if err := redeployContainer(localLog, id); err != nil {
+		if err := redeployContainer(localLog, id, startAfter); err != nil {
 			return fmt.Errorf("container %d: %w", id, err)
 		}
 		localLog.Successf("Container %d redeployed successfully.", id)
@@ -47,7 +48,7 @@ func RedeployContainersWithLogger(ids []int64, log ProgressLogger) error {
 	return nil
 }
 
-func redeployContainer(log ProgressLogger, id int64) (err error) {
+func redeployContainer(log ProgressLogger, id int64, startAfter bool) (err error) {
 	var record *db.Container
 	if record, err = db.Containers.Select(id); err != nil {
 		return fmt.Errorf("lookup container: %w", err)
@@ -213,6 +214,23 @@ func redeployContainer(log ProgressLogger, id int64) (err error) {
 	team.LastUpdated = time.Now()
 	if updateErr := db.Teams.Update(team); updateErr != nil {
 		log.Errorf("failed to update team %d metadata: %v\n", team.ID, updateErr)
+	}
+
+	if startAfter {
+		if err = api.StartContainer(newContainer); err != nil {
+			return fmt.Errorf("failed to start container after redeploy: %w", err)
+		}
+
+		record.Status = "running"
+		record.LastUpdated = time.Now()
+		if updateErr := db.Containers.Update(record); updateErr != nil {
+			log.Errorf("failed to update container %d metadata after start: %v\n", record.PVEID, updateErr)
+		}
+
+		team.LastUpdated = time.Now()
+		if updateErr := db.Teams.Update(team); updateErr != nil {
+			log.Errorf("failed to update team %d metadata after start: %v\n", team.ID, updateErr)
+		}
 	}
 
 	return nil

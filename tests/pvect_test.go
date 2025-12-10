@@ -7,6 +7,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/UNHCSC/pve-koth/config"
 	"github.com/UNHCSC/pve-koth/ssh"
 	"github.com/stretchr/testify/assert"
 )
@@ -14,6 +15,10 @@ import (
 func TestBasicLifecycle(t *testing.T) {
 	setup(t)
 	defer cleanup(t)
+
+	if !config.Config.Proxmox.Testing.Enabled {
+		t.Skip("Proxmox testing environment is not enabled; skipping test")
+	}
 
 	var (
 		err error
@@ -30,6 +35,10 @@ func TestBasicLifecycle(t *testing.T) {
 func TestSSHBasicExecution(t *testing.T) {
 	setup(t)
 	defer cleanup(t)
+
+	if !config.Config.Proxmox.Testing.Enabled {
+		t.Skip("Proxmox testing environment is not enabled; skipping test")
+	}
 
 	var (
 		err       error
@@ -61,6 +70,10 @@ func TestSSHBasicExecution(t *testing.T) {
 func TestSSHFetchExecution(t *testing.T) {
 	setup(t)
 	defer cleanup(t)
+
+	if !config.Config.Proxmox.Testing.Enabled {
+		t.Skip("Proxmox testing environment is not enabled; skipping test")
+	}
 
 	var (
 		err       error
@@ -100,6 +113,10 @@ func TestSSHFetchExecution(t *testing.T) {
 func TestSSHReset(t *testing.T) {
 	setup(t)
 	defer cleanup(t)
+
+	if !config.Config.Proxmox.Testing.Enabled {
+		t.Skip("Proxmox testing environment is not enabled; skipping test")
+	}
 
 	var (
 		err       error
@@ -151,6 +168,10 @@ func TestSSHEnvs(t *testing.T) {
 	setup(t)
 	defer cleanup(t)
 
+	if !config.Config.Proxmox.Testing.Enabled {
+		t.Skip("Proxmox testing environment is not enabled; skipping test")
+	}
+
 	var (
 		err       error
 		env       *ProxmoxTestingEnvironment
@@ -194,6 +215,10 @@ func TestSSHEnvs(t *testing.T) {
 func TestContainerBulkOperations(t *testing.T) {
 	setup(t)
 	defer cleanup(t)
+
+	if !config.Config.Proxmox.Testing.Enabled {
+		t.Skip("Proxmox testing environment is not enabled; skipping test")
+	}
 
 	var (
 		err       error

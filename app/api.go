@@ -32,6 +32,7 @@ type competitionSummary struct {
 	Host           string    `json:"host"`
 	TeamCount      int       `json:"teamCount"`
 	ContainerCount int       `json:"containerCount"`
+	NetworkCIDR    string    `json:"networkCIDR"`
 	IsPrivate      bool      `json:"isPrivate"`
 	ScoringActive  bool      `json:"scoringActive"`
 	CreatedAt      time.Time `json:"createdAt"`
@@ -42,6 +43,7 @@ type scoreboardTeam struct {
 	Name        string                `json:"name"`
 	Score       int                   `json:"score"`
 	LastUpdated time.Time             `json:"lastUpdated"`
+	NetworkCIDR string                `json:"networkCIDR"`
 	Containers  []scoreboardContainer `json:"containers"`
 }
 
@@ -65,6 +67,7 @@ type scoreboardCompetition struct {
 	Host           string           `json:"host"`
 	TeamCount      int              `json:"teamCount"`
 	ContainerCount int              `json:"containerCount"`
+	NetworkCIDR    string           `json:"networkCIDR"`
 	IsPrivate      bool             `json:"isPrivate"`
 	ScoringActive  bool             `json:"scoringActive"`
 	Teams          []scoreboardTeam `json:"teams"`
@@ -75,6 +78,7 @@ type teamAdminSummary struct {
 	Name        string    `json:"name"`
 	Score       int       `json:"score"`
 	LastUpdated time.Time `json:"lastUpdated"`
+	NetworkCIDR string    `json:"networkCIDR"`
 }
 
 type containerTeamSummary struct {
@@ -106,7 +110,8 @@ type containerPowerRequest struct {
 }
 
 type containerRedeployRequest struct {
-	IDs []int64 `json:"ids"`
+	IDs        []int64 `json:"ids"`
+	StartAfter bool    `json:"startAfter"`
 }
 
 var (
@@ -936,7 +941,7 @@ func apiGetCompetitionTeams(c *fiber.Ctx) (err error) {
 	}
 
 	summaries := make([]teamAdminSummary, 0, len(comp.TeamIDs))
-	for _, teamID := range comp.TeamIDs {
+	for teamIndex, teamID := range comp.TeamIDs {
 		var team *db.Team
 		if team, err = db.Teams.Select(teamID); err != nil {
 			return fiber.NewError(fiber.StatusInternalServerError, "failed to load teams")
@@ -945,11 +950,19 @@ func apiGetCompetitionTeams(c *fiber.Ctx) (err error) {
 			continue
 		}
 
+		network := strings.TrimSpace(team.NetworkCIDR)
+		if network == "" {
+			if computed, netErr := koth.TeamSubnetCIDR(comp, teamIndex); netErr == nil {
+				network = computed
+			}
+		}
+
 		summaries = append(summaries, teamAdminSummary{
 			ID:          team.ID,
 			Name:        team.Name,
 			Score:       team.Score,
 			LastUpdated: team.LastUpdated,
+			NetworkCIDR: network,
 		})
 	}
 
@@ -1139,8 +1152,8 @@ func apiRedeployContainers(c *fiber.Ctx) (err error) {
 		}
 	}
 
-	job := newRedeployJob(user, ids)
-	startRedeployJob(job, ids)
+	job := newRedeployJob(user, ids, payload.StartAfter)
+	startRedeployJob(job)
 
 	appLog.Basicf("redeploy[%s] queued job %s for containers: %v\n", uploadActor(user), job.ID, ids)
 
@@ -1260,6 +1273,7 @@ func summarizeCompetition(comp *db.Competition) competitionSummary {
 		Host:           comp.Host,
 		TeamCount:      len(comp.TeamIDs),
 		ContainerCount: len(comp.ContainerIDs),
+		NetworkCIDR:    comp.NetworkCIDR,
 		IsPrivate:      comp.IsPrivate,
 		ScoringActive:  comp.ScoringActive,
 		CreatedAt:      comp.CreatedAt,
@@ -1274,12 +1288,13 @@ func buildScoreboardCompetition(comp *db.Competition) (scoreboardCompetition, er
 		Host:           comp.Host,
 		TeamCount:      len(comp.TeamIDs),
 		ContainerCount: len(comp.ContainerIDs),
+		NetworkCIDR:    comp.NetworkCIDR,
 		IsPrivate:      comp.IsPrivate,
 		ScoringActive:  comp.ScoringActive,
 		Teams:          []scoreboardTeam{},
 	}
 
-	for _, teamID := range comp.TeamIDs {
+	for teamIndex, teamID := range comp.TeamIDs {
 		team, err := db.Teams.Select(teamID)
 		if err != nil {
 			return scoreboard, err
@@ -1293,11 +1308,19 @@ func buildScoreboardCompetition(comp *db.Competition) (scoreboardCompetition, er
 			return scoreboard, err
 		}
 
+		network := strings.TrimSpace(team.NetworkCIDR)
+		if network == "" {
+			if computed, netErr := koth.TeamSubnetCIDR(comp, teamIndex); netErr == nil {
+				network = computed
+			}
+		}
+
 		scoreboard.Teams = append(scoreboard.Teams, scoreboardTeam{
 			ID:          team.ID,
 			Name:        team.Name,
 			Score:       team.Score,
 			LastUpdated: team.LastUpdated,
+			NetworkCIDR: network,
 			Containers:  containers,
 		})
 	}
