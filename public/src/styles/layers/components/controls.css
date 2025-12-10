@@ -1,0 +1,20 @@
+@layer components {
+    #switchButton {
+        border: none;
+        border-radius: 1vmin;
+        background-color: #28a745;
+        color: white;
+        font-size: 2vmin;
+        padding: 1vmin 2vmin;
+        cursor: pointer;
+        text-align: center;
+    }
+
+    #switchButton:hover {
+        filter: brightness(80%);
+    }
+
+    #switchButton:active {
+        filter: brightness(60%);
+    }
+}
