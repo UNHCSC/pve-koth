@@ -1,0 +1,25 @@
+@layer components {
+    table.serviceGrid {
+        width: 100%;
+        height: 100%;
+        border-collapse: collapse;
+    }
+
+    table.serviceGrid th {
+        width: 1%;
+        white-space: nowrap;
+    }
+
+    td {
+        border: .2vmin solid #333333;
+        padding: 1vmin;
+    }
+
+    td.serviceUp {
+        background-color: #28a745;
+    }
+
+    td.serviceDown {
+        background-color: #dc3545;
+    }
+}

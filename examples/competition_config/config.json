@@ -1,0 +1,90 @@
+{
+    "competitionID": "exampleComp",
+    "competitionName": "Example Competition",
+    "competitionDescription": "This is an example competition.",
+    "competitionHost": "Example Host",
+    "numTeams": 4,
+    "privacy": {
+        "public": true,
+        "ldapAllowedGroupsFilter": []
+    },
+    "containerSpecs": {
+        "templatePath": "isos-ct_templates:vztmpl/ubuntu-25.04-standard_25.04-1.1_amd64.tar.zst",
+        "storagePool": "team",
+        "rootPassword": "password123",
+        "storageSizeGB": 8,
+        "memoryMB": 1024,
+        "cores": 1,
+        "gatewayIPv4": "10.0.0.1",
+        "cidrBlock": 8,
+        "nameServerIPv4": "10.0.0.2",
+        "searchDomain": "cyber.lab"
+    },
+    "teamContainerConfigs": [
+        {
+            "name": "website",
+            "lastOctetValue": 1,
+            "setupScript": ["scripts/setup_global.sh", "scripts/setup_website.sh"],
+            "scoringScript": ["scripts/score_global.sh", "scripts/score_website.sh"],
+            "scoringSchema": [
+                {
+                    "id": "icmp",
+                    "name": "Container Reachable (ICMP)",
+                    "passPoints": 1,
+                    "failPoints": 0
+                },
+                {
+                    "id": "exporter",
+                    "name": "Prometheus Exporter Running",
+                    "passPoints": 1,
+                    "failPoints": -1
+                },
+                {
+                    "id": "nginx",
+                    "name": "Webpage Running (nginx)",
+                    "passPoints": 3,
+                    "failPoints": -1
+                },
+                {
+                    "id": "content",
+                    "name": "Correct Webpage Content",
+                    "passPoints": 2,
+                    "failPoints": -2
+                }
+            ]
+        }, {
+            "name": "grafana",
+            "lastOctetValue": 2,
+            "setupScript": ["scripts/setup_global.sh", "scripts/setup_grafana.sh"],
+            "scoringScript": ["scripts/score_global.sh", "scripts/score_grafana.sh"],
+            "scoringSchema": [
+                {
+                    "id": "icmp",
+                    "name": "Container Reachable (ICMP)",
+                    "passPoints": 1,
+                    "failPoints": 0
+                },
+                {
+                    "id": "exporter",
+                    "name": "Prometheus Exporter Running",
+                    "passPoints": 1,
+                    "failPoints": -1
+                },
+                {
+                    "id": "grafana",
+                    "name": "Grafana Running",
+                    "passPoints": 3,
+                    "failPoints": -1
+                },
+                {
+                    "id": "prometheus",
+                    "name": "Prometheus Collector Configured",
+                    "passPoints": 2,
+                    "failPoints": -2
+                }
+            ]
+        }
+    ],
+    "setupPublicFolder": "public",
+    "writeupFilePath": "writeup.pdf"
+}

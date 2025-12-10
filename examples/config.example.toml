@@ -1,0 +1,41 @@
+[web_server]
+    address = ":443"
+    tls_dir = "/etc/ssl/ipa"
+    reload_templates_on_each_render = false
+    redirect_server_addresses = [":80"]
+
+[database]
+    file = "koth.db"
+
+[ldap]
+    address = "ldaps://domain.cyber.lab:636"
+    domain_sld = "cyber"
+    domain_tld = "lab"
+    accounts_cn = "accounts"
+    users_cn = "users"
+    groups_cn = "groups"
+    admin_groups = ["admins", "koth-admins"]
+    user_groups = ["koth-users"]
+
+[proxmox]
+    hostname = "proxmox.cyber.lab"
+    port = "8006"
+    token_id = "root@pam!koth-api-token"
+    secret = "secret-goes-here"
+    [proxmox.testing]
+        enabled = false # Set to false to ensure GitHub CI does not attempt to use proxmox in our lab
+        subnet_cidr = "10.255.0.0/26"
+        storage = "team"
+        ubuntu_template = "isos-ct_templates:vztmpl/ubuntu-25.04-standard_25.04-1.1_amd64.tar.zst"
+        gateway = "10.0.0.1"
+        dns = "10.0.0.2"
+        search_domain = "cyber.lab"
+
+[storage]
+    base_path = "./koth_live_data"
+
+[network]
+    pool_cidr = "10.128.0.0/11"
+    competition_subnet_prefix = 16
+    team_subnet_prefix = 24
+    container_cidr = 8

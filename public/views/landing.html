@@ -1,0 +1,108 @@
+<div class="space-y-10">
+    <section class="glass-panel rounded-3xl border border-white/10 p-6 md:p-12">
+        <div class="flex flex-col md:flex-row items-start gap-8">
+            <div class="space-y-5 max-w-2xl text-center md:text-left">
+                <p class="inline-flex items-center gap-2 text-xs uppercase tracking-[0.3em] text-slate-300">
+                    <span class="h-2 w-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                    Live Competition Platform
+                </p>
+                <h1 class="text-4xl md:text-5xl font-bold leading-tight text-white">
+                    Proxmox King of the Hill
+                </h1>
+                <p class="text-lg text-slate-200/90">
+                    Launch multiple red vs blue competitions, track real-time scoring, and orchestrate containers
+                    across your Proxmox cluster without touching the CLI.
+                </p>
+                <div class="flex flex-wrap justify-center md:justify-start gap-3 text-sm font-semibold">
+                    <a href="/scoreboard"
+                        class="inline-flex items-center gap-2 rounded-2xl bg-blue-500 hover:bg-blue-600 px-5 py-3 text-white">
+                        View live scoreboard
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-white" fill="none" viewBox="0 0 24 24"
+                            stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+                                d="M5 12h14m-7-7 7 7-7 7" />
+                        </svg>
+                    </a>
+                    {{if .LoggedIn}}
+                    <a href="/dashboard"
+                        class="inline-flex items-center gap-2 rounded-2xl border border-white/30 px-5 py-3 text-white/80 hover:bg-white/10">
+                        Go to dashboard
+                    </a>
+                    {{else}}
+                    <a href="/login"
+                        class="inline-flex items-center gap-2 rounded-2xl border border-white/30 px-5 py-3 text-white/80 hover:bg-white/10">
+                        Sign in to manage
+                    </a>
+                    {{end}}
+                </div>
+            </div>
+
+                <div class="grid grid-cols-2 gap-4 flex-1 w-full">
+                <div class="rounded-2xl bg-white/5 border border-white/10 p-5 text-center">
+                    <p class="text-3xl font-bold text-white" data-counter data-target="{{with .Stats}}{{.TotalCompetitions}}{{else}}0{{end}}">
+                        {{with .Stats}}{{.TotalCompetitions}}{{else}}0{{end}}
+                    </p>
+                    <p class="text-xs uppercase tracking-wide text-slate-400">Competitions</p>
+                </div>
+                <div class="rounded-2xl bg-white/5 border border-white/10 p-5 text-center">
+                    <p class="text-3xl font-bold text-white" data-counter data-target="{{with .Stats}}{{.TotalTeams}}{{else}}0{{end}}">
+                        {{with .Stats}}{{.TotalTeams}}{{else}}0{{end}}
+                    </p>
+                    <p class="text-xs uppercase tracking-wide text-slate-400">Teams</p>
+                </div>
+                <div class="rounded-2xl bg-white/5 border border-white/10 p-5 text-center">
+                    <p class="text-3xl font-bold text-white" data-counter data-target="{{with .Stats}}{{.PublicCompetitions}}{{else}}0{{end}}">
+                        {{with .Stats}}{{.PublicCompetitions}}{{else}}0{{end}}
+                    </p>
+                    <p class="text-xs uppercase tracking-wide text-slate-400">Public events</p>
+                </div>
+                <div class="rounded-2xl bg-white/5 border border-white/10 p-5 text-center">
+                    <p class="text-3xl font-bold text-white" data-counter data-target="{{with .Stats}}{{.PrivateCompetitions}}{{else}}0{{end}}">
+                        {{with .Stats}}{{.PrivateCompetitions}}{{else}}0{{end}}
+                    </p>
+                    <p class="text-xs uppercase tracking-wide text-slate-400">Private events</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section class="grid gap-6 md:grid-cols-3">
+        <article class="rounded-2xl bg-white/5 border border-white/5 p-6">
+            <h3 class="text-lg font-semibold text-white mb-2">Container automation</h3>
+            <p class="text-sm text-slate-300">Provision and templatize Proxmox containers, inject SSH keys, and
+                bootstrap scoring scripts straight from the dashboard.</p>
+        </article>
+        <article class="rounded-2xl bg-white/5 border border-white/5 p-6">
+            <h3 class="text-lg font-semibold text-white mb-2">Observability built in</h3>
+            <p class="text-sm text-slate-300">Track real-time scores, pass/fail checks, and live status updates with
+                auto-refreshing charts.</p>
+        </article>
+        <article class="rounded-2xl bg-white/5 border border-white/5 p-6">
+            <h3 class="text-lg font-semibold text-white mb-2">Role-based access</h3>
+            <p class="text-sm text-slate-300">Use LDAP groups to unlock admin-only tooling or expose public
+                scoreboards for spectators.</p>
+        </article>
+    </section>
+
+    <section class="glass-panel rounded-3xl border border-white/10 p-6 md:p-8">
+        <div class="flex flex-col gap-6">
+            <div>
+                <h2 class="text-2xl font-semibold text-white">Lightning-fast operations</h2>
+                <p class="text-slate-300">Upload a single ZIP to spin up a new season complete with documentation,
+                    setup scripts, and scoring logic.</p>
+            </div>
+            <div class="grid gap-4 md:grid-cols-2">
+                <div class="rounded-2xl border border-white/10 bg-slate-900/60 p-5">
+                    <h4 class="text-sm uppercase tracking-[0.2em] text-slate-400">Organizers</h4>
+                    <p class="mt-2 text-white font-semibold">Create competitions, manage teams, and monitor container
+                        health from one admin workspace.</p>
+                </div>
+                <div class="rounded-2xl border border-white/10 bg-slate-900/60 p-5">
+                    <h4 class="text-sm uppercase tracking-[0.2em] text-slate-400">Teams</h4>
+                    <p class="mt-2 text-white font-semibold">Jump directly into your assigned boxes, view score changes,
+                        and download docs securely.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+</div>
