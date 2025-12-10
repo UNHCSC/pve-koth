@@ -21,7 +21,7 @@ func CreateApp() (app *fiber.App) {
 	})
 
 	// Static assets (Tailwind/Webpack build output)
-	app.Static("/static", "./public/static/build")
+	app.Static("/static", "./public/build")
 
 	// Public site
 	app.Get("/", showLanding)

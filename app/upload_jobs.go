@@ -109,20 +109,20 @@ func (job *uploadJob) Successf(format string, args ...any) {
 	job.log(fmt.Sprintf(format, args...))
 }
 
-func (job *uploadJob) summary() map[string]any {
-	job.metaMu.Lock()
-	defer job.metaMu.Unlock()
+// func (job *uploadJob) summary() map[string]any {
+// 	job.metaMu.Lock()
+// 	defer job.metaMu.Unlock()
 
-	return map[string]any{
-		"id":          job.ID,
-		"owner":       job.Owner,
-		"createdAt":   job.CreatedAt,
-		"status":      job.status,
-		"error":       job.errorMsg,
-		"errorDetail": job.errorDetail,
-		"logCount":    job.logCount(),
-	}
-}
+// 	return map[string]any{
+// 		"id":          job.ID,
+// 		"owner":       job.Owner,
+// 		"createdAt":   job.CreatedAt,
+// 		"status":      job.status,
+// 		"error":       job.errorMsg,
+// 		"errorDetail": job.errorDetail,
+// 		"logCount":    job.logCount(),
+// 	}
+// }
 
 func startProvisioningJob(job *uploadJob, req db.CreateCompetitionRequest) {
 	go func() {

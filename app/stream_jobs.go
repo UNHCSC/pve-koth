@@ -73,11 +73,11 @@ func (job *streamJob) unsubscribe(ch chan string) {
 	job.mu.Unlock()
 }
 
-func (job *streamJob) logCount() int {
-	job.mu.Lock()
-	defer job.mu.Unlock()
-	return len(job.logs)
-}
+// func (job *streamJob) logCount() int {
+// 	job.mu.Lock()
+// 	defer job.mu.Unlock()
+// 	return len(job.logs)
+// }
 
 func (job *streamJob) markDone() {
 	job.mu.Lock()
