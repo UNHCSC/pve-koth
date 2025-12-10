@@ -10,7 +10,7 @@
         "build": "npm-run-all build:css build:js",
         "devel": "npm-run-all build --parallel watch:css watch:js"
     },
-    "devDependencies": {
+    "dependencies": {
         "npm-run-all": "latest",
         "tailwindcss": "latest",
         "webpack": "latest",
