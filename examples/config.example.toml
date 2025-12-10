@@ -1,16 +1,16 @@
 [web_server]
-    address = ":443"
-    tls_dir = "/etc/ssl/ipa"
+    address = ":8080"
+    tls_dir = ""
     reload_templates_on_each_render = false
-    redirect_server_addresses = [":80"]
+    redirect_server_addresses = []
 
 [database]
     file = "koth.db"
 
 [ldap]
-    address = "ldaps://domain.cyber.lab:636"
-    domain_sld = "cyber"
-    domain_tld = "lab"
+    address = "ldaps://domain.example.com:636"
+    domain_sld = "example"
+    domain_tld = "com"
     accounts_cn = "accounts"
     users_cn = "users"
     groups_cn = "groups"
@@ -18,18 +18,18 @@
     user_groups = ["koth-users"]
 
 [proxmox]
-    hostname = "proxmox.cyber.lab"
+    hostname = "proxmox.example.com"
     port = "8006"
     token_id = "root@pam!koth-api-token"
     secret = "secret-goes-here"
     [proxmox.testing]
-        enabled = true
+        enabled = false
         subnet_cidr = "10.255.0.0/26"
         storage = "team"
         ubuntu_template = "isos-ct_templates:vztmpl/ubuntu-25.04-standard_25.04-1.1_amd64.tar.zst"
         gateway = "10.0.0.1"
         dns = "10.0.0.2"
-        search_domain = "cyber.lab"
+        search_domain = "example.com"
 
 [storage]
     base_path = "./koth_live_data"

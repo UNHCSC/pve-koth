@@ -32,6 +32,9 @@ jobs:
       - name: Build frontend assets
         run: npm run build
 
+      - name: Set up config.toml from examples/config.example.toml
+        run: cp examples/config.example.toml config.toml
+
       - name: Run Go tests
         run: go test ./...
 
