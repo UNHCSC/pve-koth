@@ -68,12 +68,20 @@ jobs:
       - name: Build backend
         run: |
           mkdir -p dist
-          go build -o dist/pve-koth ./
+          go build -o dist/koth ./
+
+      - name: Prepare release tree
+        run: |
+          rm -rf dist/release
+          mkdir -p dist/release/public
+          cp README.md LICENSE dist/release/
+          cp dist/koth dist/release/
+          rsync -a --exclude='static/src' public/ dist/release/public/
 
       - name: Package release artifact
         run: |
-          mkdir -p dist/release
-          zip -r dist/pve-koth-release.zip dist/pve-koth public
+          cd dist/release
+          zip -r ../pve-koth-release.zip README.md LICENSE koth public
 
       - name: Create GitHub release
         id: create_release
