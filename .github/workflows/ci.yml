@@ -83,11 +83,11 @@ jobs:
           cd dist/release
           tar -czf ../pve-koth-release.tar.gz -C . README.md LICENSE koth public
 
-      - name: Download Artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: release-bundle
-          path: dist/
+      # - name: Download Artifact
+      #   uses: actions/download-artifact@v4
+      #   with:
+      #     name: release-bundle
+      #     path: dist/
 
       - name: Create Tag
         run: |
