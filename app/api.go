@@ -621,6 +621,39 @@ func apiStreamRedeployJob(c *fiber.Ctx) (err error) {
 	return nil
 }
 
+func apiStreamTeardownJob(c *fiber.Ctx) (err error) {
+	var user *auth.AuthUser = auth.IsAuthenticated(c, jwtSigningKey)
+	if user == nil {
+		return fiber.NewError(fiber.StatusUnauthorized, "authentication required")
+	}
+
+	var jobID = c.Params("jobID")
+	var job *teardownJob = getTeardownJob(jobID)
+	if job == nil {
+		return fiber.ErrNotFound
+	}
+
+	if !job.canView(user) {
+		return fiber.ErrForbidden
+	}
+
+	c.Set("Content-Type", "text/event-stream")
+	c.Set("Cache-Control", "no-cache")
+	c.Set("Connection", "keep-alive")
+
+	var listener = job.subscribe()
+
+	c.Context().SetBodyStreamWriter(func(w *bufio.Writer) {
+		defer job.unsubscribe(listener)
+		for message := range listener {
+			fmt.Fprintf(w, "data: %s\n\n", sanitizeLogMessage(message))
+			w.Flush()
+		}
+	})
+
+	return nil
+}
+
 func apiTeardownCompetition(c *fiber.Ctx) (err error) {
 	user := auth.IsAuthenticated(c, jwtSigningKey)
 	if user == nil {
@@ -646,13 +679,13 @@ func apiTeardownCompetition(c *fiber.Ctx) (err error) {
 		return fiber.ErrNotFound
 	}
 
-	if err = koth.TeardownCompetition(comp); err != nil {
-		appLog.Errorf("teardown failed for %s: %v\n", comp.SystemID, err)
-		return fiber.NewError(fiber.StatusInternalServerError, "failed to teardown competition")
-	}
+	job := newTeardownJob(user, comp.SystemID)
+	startTeardownJob(job)
+	appLog.Basicf("teardown[%s] queued job %s for competition: %s\n", uploadActor(user), job.ID, comp.SystemID)
 
 	return c.JSON(fiber.Map{
-		"message": fmt.Sprintf("competition %s destroyed", comp.SystemID),
+		"message": fmt.Sprintf("teardown queued (%s)", job.ID),
+		"jobID":   job.ID,
 	})
 }
 

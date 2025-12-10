@@ -1,0 +1,81 @@
+@layer base {
+    * {
+        font-family: sans-serif;
+        transition: all .2s ease-in-out;
+        color: var(--text);
+        font-weight: bold;
+    }
+
+    :root {
+        --bg: rgba(255, 255, 255, .8);
+        --dropdown: rgba(24, 24, 24, .6);
+        --text: #555555;
+    }
+
+    :root.dark {
+        --bg: rgba(24, 24, 24, .6);
+        --dropdown: rgba(224, 224, 224, .8);
+        --text: #f8f9fa;
+    }
+
+    body {
+        margin: 0;
+        padding: 0;
+        width: 100%;
+        height: 100%;
+    }
+
+    #login {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        padding: 2vmin;
+        border-radius: 1vmin;
+        background-color: var(--bg);
+    }
+
+    #login span {
+        display: block;
+        margin: 1vmin 0;
+        padding: 1vmin;
+        text-align: center;
+        font-size: 3vmin;
+    }
+
+    #login input {
+        width: calc(100% - 2vmin);
+        margin: 1vmin 0;
+        padding: 1vmin;
+        border: none;
+        border-radius: 1vmin;
+        background-color: #f8f9fa;
+        color: #555555;
+        font-size: 2vmin;
+    }
+
+    #login input:focus {
+        outline: none;
+        background-color: #e9ecef;
+    }
+
+    #login button {
+        width: 100%;
+        margin: 1vmin 0;
+        padding: 1vmin;
+        border: none;
+        border-radius: 1vmin;
+        background-color: #007bff;
+        color: white;
+        cursor: pointer;
+        font-size: 2vmin;
+    }
+
+    #login button:hover {
+        filter: brightness(80%);
+    }
+
+    #login button:active {
+        filter: brightness(60%);
+    }
+}

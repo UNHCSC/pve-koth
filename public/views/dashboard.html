@@ -134,6 +134,34 @@
             </div>
         </div>
     </div>
+    <div id="teardown-modal" class="hidden fixed inset-0 z-50">
+        <div id="teardown-overlay" class="absolute inset-0 bg-black/80 backdrop-blur-sm"></div>
+        <div class="relative z-10 min-h-screen w-full flex items-center justify-center p-4">
+            <div class="w-full max-w-2xl rounded-3xl border border-white/10 bg-slate-900 shadow-2xl shadow-black/30 overflow-hidden">
+                <div class="flex items-start justify-between px-6 py-4 border-b border-white/10 bg-slate-900 rounded-t-3xl">
+                    <div>
+                        <p class="text-xs uppercase tracking-[0.3em] text-slate-500 mb-1">Destroy competition</p>
+                        <p data-teardown-target class="text-lg font-semibold text-white">Awaiting selection</p>
+                    </div>
+                    <button id="close-teardown" aria-label="Close teardown modal"
+                        class="text-slate-400 hover:text-white focus:outline-none focus:ring-2 focus:ring-blue-400 rounded">&times;</button>
+                </div>
+                <div class="p-6 space-y-4 text-slate-200">
+                    <p data-teardown-status class="text-sm font-semibold text-slate-300">Awaiting confirmation</p>
+                    <pre id="teardown-log" class="hidden mt-3 p-3 bg-slate-950 text-rose-200 rounded-lg border border-white/10 max-h-48 overflow-auto text-sm w-full"></pre>
+                    <div class="space-y-3">
+                        <p class="text-sm text-slate-300">Destroying this competition removes all containers, teams, and stored data. This cannot be undone.</p>
+                        <div class="flex justify-end">
+                            <button type="button" data-teardown-confirm data-default-label="Destroy competition"
+                                class="inline-flex items-center rounded-2xl bg-rose-500 px-4 py-2 text-xs font-semibold uppercase tracking-[0.2em] text-white hover:bg-rose-400 focus:outline-none focus:ring-2 focus:ring-rose-300">
+                                Destroy competition
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
 {{end}}
 
 <script type="module" src="/static/dashboard.js" defer></script>

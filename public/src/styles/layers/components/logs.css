@@ -1,0 +1,35 @@
+@layer components {
+    #create-log,
+    #redeploy-log,
+    #teardown-log {
+        scrollbar-width: thin;
+        scrollbar-color: #0ea5e9 rgba(15, 23, 42, 0.6);
+    }
+
+    #create-log::-webkit-scrollbar,
+    #redeploy-log::-webkit-scrollbar,
+    #teardown-log::-webkit-scrollbar {
+        width: 0.5rem;
+    }
+
+    #create-log::-webkit-scrollbar-track,
+    #redeploy-log::-webkit-scrollbar-track,
+    #teardown-log::-webkit-scrollbar-track {
+        background: rgba(15, 23, 42, 0.6);
+        border-radius: 999px;
+    }
+
+    #create-log::-webkit-scrollbar-thumb,
+    #redeploy-log::-webkit-scrollbar-thumb,
+    #teardown-log::-webkit-scrollbar-thumb {
+        background: #0ea5e9;
+        border-radius: 999px;
+        border: 2px solid rgba(15, 23, 42, 0.6);
+    }
+
+    #create-log::-webkit-scrollbar-thumb:hover,
+    #redeploy-log::-webkit-scrollbar-thumb:hover,
+    #teardown-log::-webkit-scrollbar-thumb:hover {
+        background: #38bdf8;
+    }
+}

@@ -420,4 +420,6 @@ Administrators can tear down an entire competition environment (containers, SSH 
 POST /api/competitions/:competitionID/teardown
 ```
 
+The request now queues a background teardown job and returns JSON containing a `jobID`. Clients can stream live logs from `/api/competitions/teardown/:jobID/stream` while the teardown runs, and the log still includes the final success or failure outcome.
+
 This endpoint requires an authenticated admin session. The server stops and deletes every container recorded for the competition, removes the team/container rows from the database, and deletes the data directory under `koth_live_data/competitions/<competitionID>`. Uploaded packages remain untouched so the event can be reprovisioned later if needed.

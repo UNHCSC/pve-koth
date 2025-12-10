@@ -1,0 +1,107 @@
+@layer utilities {
+    .main.hidden,
+    #topnav.hidden,
+    #login.hidden,
+    #createContainerDropdown.hidden,
+    .containerDropdown.hidden {
+        display: none;
+    }
+
+    .containerTidbit {
+        margin-bottom: .5vmin;
+    }
+
+    .containerTidbit span:nth-child(3) {
+        color: #007bff;
+        align-self: center;
+        margin-left: 2vmin;
+    }
+
+    .containerTidbit:last-child {
+        margin-bottom: 0;
+    }
+
+    .matrix-status {
+        transition: background-color 0.25s ease, color 0.25s ease, border-color 0.25s ease;
+    }
+
+    .score-row {
+        transition: background-color 0.25s ease;
+    }
+
+    .score-value {
+        display: inline-flex;
+        justify-content: flex-end;
+        min-width: 2ch;
+        font-variant-numeric: tabular-nums;
+        transition: color 0.25s ease;
+        color: #f8fafc;
+    }
+
+    span.link {
+        text-decoration: underline;
+        cursor: pointer;
+    }
+
+    input[type="checkbox"] {
+        appearance: none;
+        width: 1.25rem;
+        height: 1.25rem;
+        border-radius: 0.35rem;
+        border: 1px solid rgba(255, 255, 255, 0.55);
+        background-color: rgba(15, 23, 42, 0.6);
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        transition: background-color 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+        position: relative;
+    }
+
+    input[type="checkbox"]::after {
+        content: "";
+        width: 0.45rem;
+        height: 0.9rem;
+        border-bottom: 2px solid transparent;
+        border-right: 2px solid transparent;
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%) rotate(45deg);
+        opacity: 0;
+        transition: opacity 0.2s ease;
+    }
+
+    input[type="checkbox"]:checked {
+        background-color: #0ea5e9;
+        border-color: #0ea5e9;
+        box-shadow: 0 0 0 3px rgba(14, 165, 233, 0.35);
+    }
+
+    input[type="checkbox"]:checked::after {
+        border-color: #fff;
+        opacity: 1;
+    }
+
+    input[type="checkbox"]:indeterminate {
+        background-color: #0ea5e9;
+        border-color: #0ea5e9;
+        box-shadow: 0 0 0 3px rgba(14, 165, 233, 0.35);
+    }
+
+    input[type="checkbox"]:indeterminate::after {
+        width: 0.7rem;
+        height: 0.2rem;
+        border: none;
+        background-color: #fff;
+        opacity: 1;
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+    }
+
+    input[type="checkbox"]:focus-visible {
+        outline: none;
+        box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.4);
+    }
+}

@@ -19,6 +19,19 @@ const redeployConfirmDefaultText =
     redeployConfirmButton?.dataset.defaultLabel?.trim() || redeployConfirmButton?.textContent?.trim() || "Redeploy";
 let redeployEventSource = null;
 let redeployStreamCompID = "";
+let redeployInProgress = false;
+
+const teardownModal = document.getElementById("teardown-modal");
+const teardownStatus = teardownModal?.querySelector("[data-teardown-status]");
+const teardownTarget = teardownModal?.querySelector("[data-teardown-target]");
+const teardownLog = document.getElementById("teardown-log");
+const teardownOverlay = document.getElementById("teardown-overlay");
+const teardownCloseButton = document.getElementById("close-teardown");
+const teardownConfirmButton = teardownModal?.querySelector("[data-teardown-confirm]");
+const teardownConfirmDefaultText =
+    teardownConfirmButton?.dataset.defaultLabel?.trim() || teardownConfirmButton?.textContent?.trim() || "Destroy competition";
+let teardownEventSource = null;
+let teardownInProgress = false;
 
 function formatBytes(bytes = 0) {
     if (!Number.isFinite(bytes) || bytes <= 0) return "0 B";
@@ -341,6 +354,21 @@ function setRedeployTargetLabel(text = "Awaiting selection") {
     redeployTarget.textContent = text;
 }
 
+function updateRedeployControls() {
+    if (redeployConfirmButton) {
+        redeployConfirmButton.disabled = redeployInProgress;
+        redeployConfirmButton.textContent = redeployInProgress ? "Redeploying…" : redeployConfirmDefaultText;
+    }
+    if (redeployStartCheckbox) {
+        redeployStartCheckbox.disabled = redeployInProgress;
+    }
+}
+
+function setRedeployBusy(isBusy) {
+    redeployInProgress = Boolean(isBusy);
+    updateRedeployControls();
+}
+
 function resetRedeployModalState() {
     if (redeployLog) {
         redeployLog.textContent = "";
@@ -349,18 +377,17 @@ function resetRedeployModalState() {
     updateRedeployStatus();
     closeRedeployStream();
     if (redeployConfirmButton) {
-        redeployConfirmButton.disabled = false;
         redeployConfirmButton.textContent = redeployConfirmDefaultText;
     }
     if (redeployStartCheckbox) {
         redeployStartCheckbox.checked = false;
-        redeployStartCheckbox.disabled = false;
     }
     if (redeployModal) {
         delete redeployModal.dataset.containerId;
         delete redeployModal.dataset.containerLabel;
         delete redeployModal.dataset.compId;
     }
+    updateRedeployControls();
 }
 
 function appendRedeployLog(message) {
@@ -387,10 +414,14 @@ function handleRedeployStatus(message = "") {
             loadCompetitionContainers(redeployStreamCompID);
             redeployStreamCompID = "";
         }
+        setRedeployBusy(false);
         return;
     }
     if (lower.includes("redeploy failed") || lower.includes("error:")) {
         updateRedeployStatus("Redeploy failed", "text-rose-500");
+        if (lower.includes("redeploy failed")) {
+            setRedeployBusy(false);
+        }
         return;
     }
     if (lower.includes("redeploy job started")) {
@@ -419,6 +450,7 @@ function startRedeployLogStream(jobID, compID = "") {
     source.onerror = () => {
         appendRedeployLog("Log stream disconnected.");
         closeRedeployStream();
+        setRedeployBusy(false);
     };
 }
 
@@ -435,18 +467,16 @@ function openRedeployModal(label, id, compID = "") {
 }
 
 async function handleRedeployConfirm() {
-	if (!redeployModal || !redeployConfirmButton) return;
+	if (!redeployModal || !redeployConfirmButton || redeployInProgress || redeployConfirmButton.disabled) {
+		return;
+	}
 	const id = Number(redeployModal.dataset.containerId);
 	if (!Number.isFinite(id)) return;
 	const compID = redeployModal.dataset.compId || "";
 	const containerLabel = redeployModal.dataset.containerLabel || `CT-${id}`;
 	const startAfter = Boolean(redeployStartCheckbox?.checked);
 
-	redeployConfirmButton.disabled = true;
-	redeployConfirmButton.textContent = "Redeploying…";
-	if (redeployStartCheckbox) {
-		redeployStartCheckbox.disabled = true;
-	}
+	setRedeployBusy(true);
 
 	appendRedeployLog(`Queued redeploy for ${containerLabel}.`);
 	updateRedeployStatus("Redeploy in progress...", "text-amber-400");
@@ -467,6 +497,7 @@ async function handleRedeployConfirm() {
 		if (payload?.jobID) {
 			startRedeployLogStream(payload.jobID, compID);
 		} else {
+			setRedeployBusy(false);
 			updateRedeployStatus("Redeploy in progress...", "text-amber-400");
 		}
 	} catch (error) {
@@ -474,10 +505,8 @@ async function handleRedeployConfirm() {
 		appendRedeployLog(message);
 		closeRedeployStream();
 		updateRedeployStatus("Redeploy failed", "text-rose-500");
+		setRedeployBusy(false);
 		window.alert(message);
-	} finally {
-		redeployConfirmButton.disabled = false;
-		redeployConfirmButton.textContent = redeployConfirmDefaultText;
 	}
 }
 
@@ -492,6 +521,174 @@ function closeRedeployModal() {
 redeployOverlay?.addEventListener("click", closeRedeployModal);
 redeployCloseButton?.addEventListener("click", closeRedeployModal);
 redeployConfirmButton?.addEventListener("click", handleRedeployConfirm);
+
+function updateTeardownStatus(text = "Awaiting confirmation", tone = "text-slate-300") {
+    if (!teardownStatus) return;
+    teardownStatus.textContent = text;
+    teardownStatus.className = `text-sm font-semibold ${tone}`;
+}
+
+function setTeardownTargetLabel(text = "Awaiting selection") {
+    if (!teardownTarget) return;
+    teardownTarget.textContent = text;
+}
+
+function updateTeardownControls() {
+    if (teardownConfirmButton) {
+        teardownConfirmButton.disabled = teardownInProgress;
+        teardownConfirmButton.textContent = teardownInProgress ? "Destroying…" : teardownConfirmDefaultText;
+    }
+}
+
+function setTeardownBusy(isBusy) {
+    teardownInProgress = Boolean(isBusy);
+    updateTeardownControls();
+}
+
+function resetTeardownModalState() {
+    if (teardownLog) {
+        teardownLog.textContent = "";
+        teardownLog.classList.add("hidden");
+    }
+    updateTeardownStatus();
+    closeTeardownStream();
+    if (teardownModal) {
+        delete teardownModal.dataset.compId;
+        delete teardownModal.dataset.compLabel;
+    }
+    setTeardownBusy(false);
+    setTeardownTargetLabel("Awaiting selection");
+}
+
+function appendTeardownLog(message) {
+    if (!teardownLog) return;
+    const timestamp = new Date().toLocaleTimeString();
+    teardownLog.classList.remove("hidden");
+    teardownLog.textContent += `[${timestamp}] ${message}\n`;
+    teardownLog.scrollTop = teardownLog.scrollHeight;
+}
+
+function closeTeardownStream() {
+    if (!teardownEventSource) return;
+    teardownEventSource.close();
+    teardownEventSource = null;
+}
+
+function handleTeardownStatus(message = "") {
+    if (!message) return;
+    const lower = message.toLowerCase();
+    if (lower.includes("torn down successfully") || lower.includes("teardown completed")) {
+        updateTeardownStatus("Competition destroyed", "text-emerald-400");
+        closeTeardownStream();
+        setTeardownBusy(false);
+        loadDashboard();
+        return;
+    }
+    if (lower.includes("destroying competition")) {
+        updateTeardownStatus("Destroying competition...", "text-amber-400");
+        return;
+    }
+    if (lower.includes("error") || lower.includes("failed")) {
+        updateTeardownStatus("Teardown failed", "text-rose-500");
+        setTeardownBusy(false);
+        closeTeardownStream();
+        return;
+    }
+}
+
+function startTeardownLogStream(jobID) {
+    if (!jobID) {
+        return;
+    }
+
+    if (typeof EventSource === "undefined") {
+        appendTeardownLog("Live log streaming is unavailable in this browser.");
+        updateTeardownStatus("Teardown in progress...", "text-amber-400");
+        setTeardownBusy(false);
+        return;
+    }
+
+    closeTeardownStream();
+    appendTeardownLog(`Connecting to teardown log (${jobID})...`);
+
+    const source = new EventSource(`/api/competitions/teardown/${encodeURIComponent(jobID)}/stream`);
+    teardownEventSource = source;
+
+    source.onmessage = (event) => {
+        const message = event.data || "";
+        appendTeardownLog(`[teardown] ${message}`);
+        handleTeardownStatus(message);
+    };
+
+    source.onerror = () => {
+        appendTeardownLog("Log stream disconnected.");
+        closeTeardownStream();
+        setTeardownBusy(false);
+    };
+}
+
+function openTeardownModal(compName, compID) {
+    if (!teardownModal) return;
+    resetTeardownModalState();
+    if (compID) {
+        teardownModal.dataset.compId = compID;
+    }
+    if (compName) {
+        teardownModal.dataset.compLabel = compName;
+        setTeardownTargetLabel(compName);
+    } else {
+        setTeardownTargetLabel("Awaiting selection");
+    }
+    teardownModal.classList.remove("hidden");
+}
+
+async function handleTeardownConfirm() {
+    if (!teardownModal || !teardownConfirmButton || teardownInProgress || teardownConfirmButton.disabled) {
+        return;
+    }
+    const compID = teardownModal.dataset.compId;
+    if (!compID) return;
+    const compLabel = teardownModal.dataset.compLabel || compID;
+
+    setTeardownBusy(true);
+    appendTeardownLog(`Requesting teardown for ${compLabel}.`);
+    updateTeardownStatus("Requesting teardown...", "text-amber-400");
+
+    try {
+        const response = await fetch(`/api/competitions/${encodeURIComponent(compID)}/teardown`, {
+            method: "POST",
+            credentials: "include"
+        });
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) {
+            throw new Error(payload?.error || payload?.message || "Failed to destroy competition");
+        }
+        const successMessage = payload?.message || `Teardown queued (${payload?.jobID || "pending"})`;
+        appendTeardownLog(successMessage);
+        if (payload?.jobID) {
+            startTeardownLogStream(payload.jobID);
+        } else {
+            updateTeardownStatus("Teardown in progress...", "text-amber-400");
+            setTeardownBusy(false);
+        }
+    } catch (error) {
+        const message = error.message || "Unable to tear down competition.";
+        appendTeardownLog(message);
+        updateTeardownStatus("Teardown failed", "text-rose-500");
+        setTeardownBusy(false);
+        window.alert(message);
+    }
+}
+
+function closeTeardownModal() {
+    if (!teardownModal || teardownInProgress) return;
+    teardownModal.classList.add("hidden");
+    resetTeardownModalState();
+}
+
+teardownOverlay?.addEventListener("click", closeTeardownModal);
+teardownCloseButton?.addEventListener("click", closeTeardownModal);
+teardownConfirmButton?.addEventListener("click", handleTeardownConfirm);
 
 function setStats({ total = 0, publicCount = 0, privateCount = 0 } = {}) {
     if (!statContainer) return;
@@ -593,40 +790,13 @@ function renderCompetitions(competitions = []) {
 	}
 }
 
-async function teardownCompetition(button) {
-    if (!button) return;
-    const compID = button.dataset.id;
-    const compName = button.dataset.name || compID;
-    if (!compID) return;
+function teardownCompetition(button) {
+	if (!button || !teardownModal) return;
+	const compID = button.dataset.id;
+	if (!compID) return;
+	const compName = button.dataset.name || compID;
 
-    if (!window.confirm(`Tear down competition "${compName}"? This cannot be undone.`)) {
-        return;
-    }
-
-    const originalText = button.textContent;
-    button.disabled = true;
-    button.textContent = "Destroying…";
-
-    try {
-        const response = await fetch(`/api/competitions/${encodeURIComponent(compID)}/teardown`, {
-            method: "POST",
-            credentials: "include"
-        });
-        const result = await response.json().catch(() => ({}));
-
-        if (!response.ok) {
-            throw new Error(result?.error || result?.message || "Failed to tear down competition");
-        }
-
-        window.alert(result?.message || `Competition ${compName} destroyed.`);
-        await loadDashboard();
-    } catch (error) {
-        console.error(error);
-        window.alert(error.message || "Unable to tear down competition.");
-    } finally {
-        button.disabled = false;
-        button.textContent = originalText;
-    }
+	openTeardownModal(compName, compID);
 }
 
 async function toggleScoring(button) {

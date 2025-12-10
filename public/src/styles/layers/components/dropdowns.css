@@ -1,0 +1,97 @@
+@layer components {
+    #createContainerDropdown {
+        position: relative;
+        display: inline-block;
+        min-width: 24vmin;
+    }
+
+    #createContainerDropdownContent {
+        display: none;
+        position: absolute;
+        background-color: var(--dropdown);
+        padding: 1vmin;
+        border-radius: 1vmin;
+        z-index: 1;
+    }
+
+    #createContainerDropdown:hover #createContainerDropdownContent {
+        display: block;
+    }
+
+    #createContainerDropdownContent input {
+        width: calc(100% - 2vmin);
+        margin: 1vmin 0;
+        padding: .8vmin 1vmin;
+        border: none;
+        border-radius: 1vmin;
+        background-color: #f8f9fa;
+        font-size: 1.5vmin;
+    }
+
+    #createContainerDropdownContent input:focus {
+        outline: none;
+        background-color: #e9ecef;
+    }
+
+    #createContainerDropdownContent button {
+        width: 100%;
+        margin: 1vmin 0;
+        padding: .8vmin 1vmin;
+        border: none;
+        border-radius: 1vmin;
+        background-color: #007bff;
+        color: white;
+        cursor: pointer;
+        font-size: 1.5vmin;
+    }
+
+    #createContainerDropdownContent button:focus-visible {
+        outline: 2px solid #0056b3;
+    }
+
+    .containerDropdown {
+        position: relative;
+        display: inline-block;
+    }
+
+    .containerDropdownContent {
+        display: none;
+        position: absolute;
+        transform: translate(-30%, 0);
+        background-color: var(--dropdown);
+        padding: 1vmin;
+        z-index: 1;
+    }
+
+    .containerDropdownContent button {
+        width: 100%;
+        padding: .25vmin;
+        border: none;
+        background-color: var(--bg);
+        color: var(--text);
+        cursor: pointer;
+        font-size: 1.5vmin;
+        margin-top: .5vmin;
+    }
+
+    .containerDropdownContent button:first-child {
+        margin-top: 0;
+    }
+
+    .containerDropdown:hover .containerDropdownContent {
+        display: block;
+    }
+
+    .containerDropButton {
+        cursor: pointer;
+        border: none;
+        border-radius: 1vmin;
+        background-color: #007bff;
+    }
+
+    .containerDropButton img {
+        width: 2.5vmin;
+        height: 2.5vmin;
+        vertical-align: middle;
+    }
+}

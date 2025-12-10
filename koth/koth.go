@@ -340,8 +340,8 @@ func CreateNewCompWithLogger(request *db.CreateCompetitionRequest, logSink Progr
 		provisionedMu       sync.Mutex
 		totalContainers     = len(plans)
 		completedContainers int32
-		spinnerCounter      int32
 	)
+
 	defer func() {
 		if err != nil {
 			cleanupProvisionedContainers(localLog, comp, provisioned)
@@ -358,23 +358,7 @@ func CreateNewCompWithLogger(request *db.CreateCompetitionRequest, logSink Progr
 		artifactBaseURL = buildCompetitionArtifactBase(externalBaseURL(), comp.SystemID)
 	)
 
-	localLog.Statusf("%s Provisioning progress: (0/%d) containers complete.", nextSpinnerFrame(&spinnerCounter), totalContainers)
-	progressStop := make(chan struct{})
-	go func() {
-		ticker := time.NewTicker(1 * time.Second)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-progressStop:
-				return
-			case <-ctx.Done():
-				return
-			case <-ticker.C:
-				current := atomic.LoadInt32(&completedContainers)
-				localLog.Statusf("%s Provisioning progress: (%d/%d) containers complete.", nextSpinnerFrame(&spinnerCounter), current, totalContainers)
-			}
-		}
-	}()
+	localLog.Statusf("Provisioning progress: (0/%d) containers complete.", totalContainers)
 
 	errCh := make(chan error, len(plans))
 	var wg sync.WaitGroup
@@ -394,7 +378,7 @@ func CreateNewCompWithLogger(request *db.CreateCompetitionRequest, logSink Progr
 			}
 			if perr == nil && entry != nil && entry.recorded {
 				current := atomic.AddInt32(&completedContainers, 1)
-				localLog.Statusf("%s Provisioning progress: (%d/%d) containers complete.", nextSpinnerFrame(&spinnerCounter), current, totalContainers)
+				localLog.Statusf("Provisioning progress: (%d/%d) containers complete.", current, totalContainers)
 			}
 			if perr != nil {
 				select {
@@ -407,7 +391,6 @@ func CreateNewCompWithLogger(request *db.CreateCompetitionRequest, logSink Progr
 	}
 
 	wg.Wait()
-	close(progressStop)
 
 	select {
 	case provisionErr := <-errCh:
@@ -732,7 +715,7 @@ func cleanupFailedCompetitionResources(log ProgressLogger, comp *db.Competition,
 
 func retryWithDelay(ctx context.Context, attempts int, delay time.Duration, fn func(attempt int) error) error {
 	var err error
-	for attempt := 0; attempt < attempts; attempt++ {
+	for attempt := range attempts {
 		if ctx != nil {
 			select {
 			case <-ctx.Done():
@@ -761,17 +744,6 @@ func retryWithDelay(ctx context.Context, attempts int, delay time.Duration, fn f
 	}
 
 	return err
-}
-
-func nextSpinnerFrame(counter *int32) string {
-	if counter == nil || len(spinnerFrames) == 0 {
-		return ""
-	}
-	idx := atomic.AddInt32(counter, 1)
-	if idx <= 0 {
-		idx = 0
-	}
-	return spinnerFrames[int(idx-1)%len(spinnerFrames)]
 }
 
 func externalBaseURL() string {
