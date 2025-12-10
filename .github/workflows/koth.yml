@@ -85,7 +85,7 @@ jobs:
                     cp go.mod dist/
             -
                 name: Create tarball
-                run: tar -czf pve-koth-linux-amd64.tar.gz -C dist/linux-amd64 .
+                run: tar -czf pve-koth-linux-amd64.tar.gz -C dist/ .
             -
                 name: Upload artifact
                 uses: actions/upload-artifact@v4
