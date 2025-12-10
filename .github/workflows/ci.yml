@@ -68,7 +68,7 @@ jobs:
       - name: Build backend
         run: |
           mkdir -p dist
-          go build -o dist/koth ./
+          GOOS=linux GOARCH=amd64 go build -trimpath -ldflags="-s -w -X main.version=release-${{ github.run_number }}" -o dist/koth main.go
 
       - name: Prepare release tree
         run: |
@@ -81,7 +81,7 @@ jobs:
       - name: Package release artifact
         run: |
           cd dist/release
-          zip -r ../pve-koth-release.zip README.md LICENSE koth public
+          tar -czf ../pve-koth-release.tar.gz -C . README.md LICENSE koth public
 
       - name: Create GitHub release
         id: create_release
