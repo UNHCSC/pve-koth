@@ -416,8 +416,6 @@ func provisionContainerPlan(ctx context.Context, log ProgressLogger, plan *conta
 	}
 
 	log.Statusf("Provisioning container %s for %s...", plan.options.Hostname, plan.team.Name)
-	log.Statusf("Container options for %s: %+v", plan.options.Hostname, plan.options)
-
 	var createResult *proxmoxAPI.ProxmoxAPICreateResult
 	if err = retryWithDelay(ctx, containerCreateRetries, containerRetryDelay, func(attempt int) error {
 		log.Statusf("Creating container %s (attempt %d/%d)...", plan.options.Hostname, attempt+1, containerCreateRetries)
@@ -522,16 +520,15 @@ func runSetupScripts(log ProgressLogger, conn *ssh.SSHConnection, comp *db.Compe
 
 		var (
 			exitCode int
-			output   []byte
 			command  = ssh.LoadAndRunScript(scriptURL, token, envs)
 		)
 
-		if exitCode, output, err = conn.SendWithOutput(command); err != nil {
+		if exitCode, _, err = conn.SendWithOutput(command); err != nil {
 			log.Errorf("Failed to execute setup script %s on %s: %v\n", scriptPath, plan.options.Hostname, err)
 			return
 		}
 
-		log.Statusf("Setup script %s exited with %d. Output:\n%s", scriptPath, exitCode, summarizeScriptOutput(string(output)))
+		log.Statusf("Setup script %s exited with %d.", scriptPath, exitCode)
 
 		if exitCode != 0 {
 			err = fmt.Errorf("setup script %s exited with code %d", scriptPath, exitCode)
