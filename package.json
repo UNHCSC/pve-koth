@@ -11,9 +11,11 @@
         "devel": "npm-run-all build --parallel watch:css watch:js"
     },
     "dependencies": {
+        "@tailwindcss/cli": "latest",
         "npm-run-all": "latest",
-        "tailwindcss": "latest",
+        "terser-webpack-plugin": "latest",
         "webpack": "latest",
-        "webpack-cli": "latest"
+        "webpack-cli": "latest",
+        "tailwindcss": "latest"
     }
 }
