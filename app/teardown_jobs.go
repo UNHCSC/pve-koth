@@ -71,7 +71,6 @@ func startTeardownJob(job *teardownJob) {
 	go func() {
 		defer job.markDone()
 		job.Statusf("Teardown job started for competition %s", job.compID)
-		appLog.Basicf("teardown[%s] job %s started for %s\n", job.Owner, job.ID, job.compID)
 
 		comp, err := loadCompetitionByIdentifier(job.compID)
 		if err != nil {

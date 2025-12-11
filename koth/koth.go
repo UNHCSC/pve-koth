@@ -370,7 +370,7 @@ func CreateNewCompWithLogger(request *db.CreateCompetitionRequest, logSink Progr
 
 		go func(plan *containerPlan, network *teamNetwork, teamLock *sync.Mutex) {
 			defer wg.Done()
-			entry, perr := provisionContainerPlan(ctx, localLog, plan, comp, network, privateKey, publicFolderURL, artifactBaseURL, teamLock, &compLock)
+			entry, perr := provisionContainerPlan(ctx, localLog, plan, comp, network, privateKey, publicFolderURL, artifactBaseURL, teamLock, &compLock, request.EnableAdvancedLogging)
 			if entry != nil {
 				provisionedMu.Lock()
 				provisioned = append(provisioned, entry)
@@ -410,7 +410,7 @@ func CreateNewCompWithLogger(request *db.CreateCompetitionRequest, logSink Progr
 	return
 }
 
-func provisionContainerPlan(ctx context.Context, log ProgressLogger, plan *containerPlan, comp *db.Competition, network *teamNetwork, privateKey, publicFolderURL, artifactBaseURL string, teamLock *sync.Mutex, compLock *sync.Mutex) (entry *provisionedContainer, err error) {
+func provisionContainerPlan(ctx context.Context, log ProgressLogger, plan *containerPlan, comp *db.Competition, network *teamNetwork, privateKey, publicFolderURL, artifactBaseURL string, teamLock *sync.Mutex, compLock *sync.Mutex, enableAdvancedLogging bool) (entry *provisionedContainer, err error) {
 	if plan == nil {
 		return nil, fmt.Errorf("container plan is nil")
 	}
@@ -471,7 +471,7 @@ func provisionContainerPlan(ctx context.Context, log ProgressLogger, plan *conta
 		}
 	}
 
-	if err = runSetupScripts(log, conn, comp, plan, network, publicFolderURL, artifactBaseURL, false); err != nil {
+	if err = runSetupScripts(log, conn, comp, plan, network, publicFolderURL, artifactBaseURL, enableAdvancedLogging); err != nil {
 		return entry, err
 	}
 
@@ -516,19 +516,29 @@ func runSetupScripts(log ProgressLogger, conn *ssh.SSHConnection, comp *db.Compe
 
 	for _, scriptPath := range plan.setupScripts {
 		var scriptURL = buildArtifactFileURL(artifactBaseURL, scriptPath)
-		log.Statusf("Running setup script %s on container %s...", scriptPath, plan.options.Hostname)
 
 		var (
 			exitCode int
+			output   string
 			command  = ssh.LoadAndRunScript(scriptURL, token, envs)
 		)
+
+		if logEnv {
+			log.Statusf("Executing setup script %s on %s with command: %s", scriptPath, plan.options.Hostname, command)
+		} else {
+			log.Statusf("Executing setup script %s on %s...", scriptPath, plan.options.Hostname)
+		}
 
 		if exitCode, _, err = conn.SendWithOutput(command); err != nil {
 			log.Errorf("Failed to execute setup script %s on %s: %v\n", scriptPath, plan.options.Hostname, err)
 			return
 		}
 
-		log.Statusf("Setup script %s exited with %d.", scriptPath, exitCode)
+		if logEnv {
+			log.Statusf("Setup script %s exited with code %d, output: %s", scriptPath, exitCode, output)
+		} else {
+			log.Statusf("Setup script %s exited with code %d.", scriptPath, exitCode)
+		}
 
 		if exitCode != 0 {
 			err = fmt.Errorf("setup script %s exited with code %d", scriptPath, exitCode)
@@ -587,14 +597,7 @@ func formatScriptEnv(envs map[string]any) string {
 
 	var parts []string
 	for _, key := range keys {
-		value := envs[key]
-		text := fmt.Sprintf("%v", value)
-		if key == "KOTH_ACCESS_TOKEN" && text != "" {
-			if len(text) > 8 {
-				text = fmt.Sprintf("%s...", text[:8])
-			}
-		}
-		parts = append(parts, fmt.Sprintf("%s=%s", key, text))
+		parts = append(parts, fmt.Sprintf("%s=%v", key, envs[key]))
 	}
 
 	return strings.Join(parts, " ")

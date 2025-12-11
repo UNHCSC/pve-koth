@@ -110,8 +110,9 @@ type containerPowerRequest struct {
 }
 
 type containerRedeployRequest struct {
-	IDs        []int64 `json:"ids"`
-	StartAfter bool    `json:"startAfter"`
+	IDs                   []int64 `json:"ids"`
+	StartAfter            bool    `json:"startAfter"`
+	EnableAdvancedLogging bool    `json:"enableAdvancedLogging"`
 }
 
 var (
@@ -134,7 +135,7 @@ func newUploadContext(user *auth.AuthUser) *uploadContext {
 func (u *uploadContext) logf(format string, args ...any) {
 	var message = fmt.Sprintf(format, args...)
 	u.logs = append(u.logs, message)
-	logUploadInfo(u.user, "%s", message)
+	// logUploadInfo(u.user, "%s", message)
 }
 
 func (u *uploadContext) fail(c *fiber.Ctx, status int, message string, cause error) error {
@@ -393,6 +394,15 @@ func apiCreateCompetition(c *fiber.Ctx) (err error) {
 		}
 	}
 
+	enableAdvancedLogging := false
+	if raw := strings.TrimSpace(c.FormValue("enableAdvancedLogging")); raw != "" {
+		if parsed, parseErr := strconv.ParseBool(raw); parseErr == nil {
+			enableAdvancedLogging = parsed
+		}
+	}
+	compReq.EnableAdvancedLogging = enableAdvancedLogging
+	ctx.logf("advanced logging: %t", enableAdvancedLogging)
+
 	var packageRecord *db.CompetitionPackage
 	if packageRecord, err = persistCompetitionPackage(&compReq, configData, fHeader.Filename); err != nil {
 		return ctx.fail(c, fiber.StatusInternalServerError, "failed to store competition package", err)
@@ -409,14 +419,6 @@ func apiCreateCompetition(c *fiber.Ctx) (err error) {
 
 	var compCopy db.CreateCompetitionRequest = compReq
 	compCopy.AttachedFiles = nil
-
-	if marshalled, marshalErr := json.MarshalIndent(compCopy, "", "  "); marshalErr == nil {
-		appLog.Basicf("competition package (%s) parsed by %s:\n%s\n", fHeader.Filename, user.LDAPConn.Username, marshalled)
-	}
-
-	for _, attachment := range compReq.AttachedFiles {
-		appLog.Basicf("attachment captured: %s (%d bytes)\n", attachment.SourceFilePath, len(attachment.FileContent))
-	}
 
 	ctx.logf("creating competition pipeline (pending)")
 	ctx.logf("creating environment (pending)")
@@ -681,7 +683,6 @@ func apiTeardownCompetition(c *fiber.Ctx) (err error) {
 
 	job := newTeardownJob(user, comp.SystemID)
 	startTeardownJob(job)
-	appLog.Basicf("teardown[%s] queued job %s for competition: %s\n", uploadActor(user), job.ID, comp.SystemID)
 
 	return c.JSON(fiber.Map{
 		"message": fmt.Sprintf("teardown queued (%s)", job.ID),
@@ -1185,10 +1186,8 @@ func apiRedeployContainers(c *fiber.Ctx) (err error) {
 		}
 	}
 
-	job := newRedeployJob(user, ids, payload.StartAfter)
+	job := newRedeployJob(user, ids, payload.StartAfter, payload.EnableAdvancedLogging)
 	startRedeployJob(job)
-
-	appLog.Basicf("redeploy[%s] queued job %s for containers: %v\n", uploadActor(user), job.ID, ids)
 
 	return c.JSON(fiber.Map{
 		"message": fmt.Sprintf("redeploy queued (%s)", job.ID),

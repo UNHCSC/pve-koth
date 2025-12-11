@@ -90,12 +90,18 @@
                         <p class="flex items-center justify-between"><span class="font-medium">Status</span><span
                                 data-field="status" class="text-slate-300">Waiting for upload</span></p>
                     </div>
-                    <div class="flex items-center justify-end gap-3">
-                        <button id="cancel-create" type="button"
-                            class="px-4 py-2 rounded-lg bg-white/10 text-white hover:bg-white/20 focus:outline-none focus:ring-2 focus:ring-blue-300">Cancel</button>
-                        <button type="submit" id="upload-package"
-                            class="px-4 py-2 rounded-lg bg-blue-500 text-white font-medium hover:bg-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-200">Upload
-                            package</button>
+                    <div class="flex flex-col gap-2">
+                        <div class="flex items-center gap-2 text-sm text-slate-300">
+                            <input id="enable-advanced-logging" type="checkbox" class="h-4 w-4 rounded border-white/30 bg-slate-800/80 text-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-400">
+                            <label for="enable-advanced-logging" class="select-none cursor-pointer">Enable advanced logging</label>
+                        </div>
+                        <div class="flex items-center justify-end gap-3">
+                            <button id="cancel-create" type="button"
+                                class="px-4 py-2 rounded-lg bg-white/10 text-white hover:bg-white/20 focus:outline-none focus:ring-2 focus:ring-blue-300">Cancel</button>
+                            <button type="submit" id="upload-package"
+                                class="px-4 py-2 rounded-lg bg-blue-500 text-white font-medium hover:bg-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-200">Upload
+                                package</button>
+                        </div>
                     </div>
                 </form>
                 <pre id="create-log" class="hidden mt-4 p-3 bg-slate-950 text-emerald-200 rounded-lg border border-white/10 max-h-48 overflow-auto text-sm w-full"></pre>
@@ -122,6 +128,10 @@
                         <label class="inline-flex items-center gap-2 text-slate-300 text-sm">
                             <input type="checkbox" data-redeploy-start-checkbox class="h-4 w-4 rounded border-white/30 bg-slate-800/80 text-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-400">
                             <span>Start when finished</span>
+                        </label>
+                        <label class="inline-flex items-center gap-2 text-slate-300 text-sm">
+                            <input type="checkbox" data-redeploy-advanced-logging class="h-4 w-4 rounded border-white/30 bg-slate-800/80 text-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-400">
+                            <span>Show detailed logs</span>
                         </label>
                         <div class="flex justify-end">
                             <button type="button" data-redeploy-confirm data-default-label="Redeploy container"
