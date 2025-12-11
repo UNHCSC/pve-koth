@@ -505,17 +505,14 @@ func apiGetArtifactFile(c *fiber.Ctx) (err error) {
 	)
 
 	if competitionID == "" {
-		fmt.Println("competitionID missing")
 		return fiber.ErrBadRequest
 	}
 
 	comp, err := db.GetCompetitionBySystemID(competitionID)
 	if err != nil {
-		fmt.Println("failed to load competition:", err)
 		return fiber.NewError(fiber.StatusInternalServerError, "failed to load competition")
 	}
 	if comp == nil {
-		fmt.Println("competition not found")
 		return fiber.ErrNotFound
 	}
 
@@ -527,41 +524,34 @@ func apiGetArtifactFile(c *fiber.Ctx) (err error) {
 	}
 
 	if !authorized {
-		fmt.Printf("unauthorized: auth cookie: %v, jwt: %v\n", koth.ValidateAccessToken(competitionID, c.Cookies("Authorization", "")), auth.IsAuthenticated(c, jwtSigningKey))
 		return fiber.ErrUnauthorized
 	}
 
 	relativePath = sanitizeRelativePathComponent(relativePath)
 	if relativePath == "" {
-		fmt.Println("relative path empty after sanitization")
 		return fiber.ErrNotFound
 	}
 
 	var baseDir = comp.PackageStoragePath
 	if baseDir == "" {
-		fmt.Println("baseDir is empty")
 		return fiber.ErrNotFound
 	}
 
 	var targetPath = filepath.Join(baseDir, relativePath)
 	if !pathWithinBase(baseDir, targetPath) {
-		fmt.Println("target path outside base")
 		return fiber.ErrForbidden
 	}
 
 	var info os.FileInfo
 	if info, err = os.Stat(targetPath); err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			fmt.Println("file does not exist")
 			return fiber.ErrNotFound
 		}
 
-		fmt.Println("failed to stat file:", err)
 		return fiber.ErrInternalServerError
 	}
 
 	if info.IsDir() {
-		fmt.Println("target is a directory")
 		return fiber.ErrNotFound
 	}
 
