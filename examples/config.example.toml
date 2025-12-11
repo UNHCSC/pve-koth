@@ -39,3 +39,16 @@
     competition_subnet_prefix = 16
     team_subnet_prefix = 24
     container_cidr = 8
+    container_gateway = "10.0.0.1"
+    container_nameserver = "10.0.0.2"
+    container_search_domain = "cyber.lab"
+
+[container_restrictions]
+    allowed_lxc_templates = [
+        "isos-ct_templates:vztmpl/ubuntu-25.04-standard_25.04-1.1_amd64.tar.zst",
+        "isos-ct_templates:vztmpl/rockylinux-9-default_20240912_amd64.tar.xz"
+    ]
+    allowed_storage_pools = ["team"]
+    max_cpu_cores = 4
+    max_memory_mb = 8192
+    max_disk_mb = 32768

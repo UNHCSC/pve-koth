@@ -121,6 +121,10 @@ func loadCompetitionDefinition(comp *db.Competition) (*db.CreateCompetitionReque
 		return nil, fmt.Errorf("parse competition config: %w", err)
 	}
 
+	if _, err = ensureTemplateLookup(&req); err != nil {
+		return nil, fmt.Errorf("template lookup: %w", err)
+	}
+
 	return &req, nil
 }
 

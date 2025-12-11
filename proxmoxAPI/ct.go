@@ -278,6 +278,8 @@ func (api *ProxmoxAPI) RawExecute(ct *proxmox.Container, username, password, com
 		return
 	}
 
+	// term.User = determineTerminalUser(term.User, username, api.tokenUser)
+
 	var (
 		send, recv chan []byte
 		errs       chan error
@@ -322,6 +324,44 @@ func (api *ProxmoxAPI) RawExecute(ct *proxmox.Container, username, password, com
 
 	stdout = outputBuilder.String()
 	stderr = errorBuilder.String()
+
+	return
+}
+
+func determineTerminalUser(existing, desired, tokenUser string) string {
+	if existing != "" {
+		return existing
+	}
+
+	user := tokenUser
+	if user == "" {
+		user = desired
+	}
+
+	if user == "" {
+		return ""
+	}
+
+	if !strings.Contains(user, "@") {
+		user = fmt.Sprintf("%s@pam", user)
+	}
+
+	return user
+}
+
+func (api *ProxmoxAPI) RawExecuteWithRetries(ct *proxmox.Container, username, password, command string, numRetries int) (stdout string, stderr string, err error) {
+	for i := range numRetries + 1 {
+		if stdout, stderr, err = api.RawExecute(ct, username, password, command); err == nil {
+			if i > 0 {
+				// fmt.Printf("Raw execute on container %d succeeded after %d retries.\n", ct.VMID, i-1)
+			}
+
+			return
+		}
+
+		// fmt.Printf("Raw execute on container %d failed: %v. Retrying (%d/%d)...\n", ct.VMID, err, i+1, numRetries)
+		time.Sleep(time.Second * (time.Duration(i) + 1))
+	}
 
 	return
 }

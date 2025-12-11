@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"fmt"
 	"net/http"
+	"strings"
 	"sync"
 
 	"github.com/UNHCSC/pve-koth/config"
@@ -18,6 +19,7 @@ type ProxmoxAPI struct {
 	Nodes       []*proxmox.Node
 	Cluster     *proxmox.Cluster
 	nodeRotator int
+	tokenUser   string
 }
 
 type ProxmoxAPICreateResult struct {
@@ -45,6 +47,11 @@ func InitProxmox() (api *ProxmoxAPI, err error) {
 		),
 		bg:    context.Background(),
 		Nodes: make([]*proxmox.Node, 0),
+	}
+	if token := config.Config.Proxmox.TokenID; token != "" {
+		if parts := strings.SplitN(token, "!", 2); len(parts) > 0 {
+			api.tokenUser = parts[0]
+		}
 	}
 
 	if api.Cluster, err = api.client.Cluster(api.bg); err != nil {

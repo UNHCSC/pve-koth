@@ -117,6 +117,11 @@ func redeployContainer(log ProgressLogger, id int64, startAfter, enableAdvancedL
 		return fmt.Errorf("build team network: %w", err)
 	}
 
+	var templateSpec db.ContainerSpecTemplate
+	if templateSpec, err = ResolveContainerSpecTemplate(req.TemplateLookup, cfg.ContainerSpecsTemplate); err != nil {
+		return fmt.Errorf("resolve template for %s: %w", cfg.Name, err)
+	}
+
 	plan := &containerPlan{
 		team:          team,
 		name:          cfg.Name,
@@ -125,19 +130,19 @@ func redeployContainer(log ProgressLogger, id int64, startAfter, enableAdvancedL
 		ipAddress:     record.IPAddress,
 		setupScripts:  append([]string(nil), cfg.SetupScript...),
 		options: &proxmoxAPI.ContainerCreateOptions{
-			TemplatePath:     comp.ContainerRestrictions.Template,
-			StoragePool:      comp.ContainerRestrictions.StoragePool,
+			TemplatePath:     templateSpec.TemplatePath,
+			StoragePool:      templateSpec.StoragePool,
 			Hostname:         fmt.Sprintf("%s-team-%d-%s", comp.ContainerRestrictions.HostnamePrefix, teamIndex+1, cfg.Name),
-			RootPassword:     comp.ContainerRestrictions.RootPassword,
+			RootPassword:     templateSpec.RootPassword,
 			RootSSHPublicKey: publicKey,
-			StorageSizeGB:    comp.ContainerRestrictions.StorageGB,
-			MemoryMB:         comp.ContainerRestrictions.MemoryMB,
-			Cores:            comp.ContainerRestrictions.Cores,
-			GatewayIPv4:      comp.ContainerRestrictions.GatewayIPv4,
+			StorageSizeGB:    templateSpec.StorageSizeGB,
+			MemoryMB:         templateSpec.MemoryMB,
+			Cores:            templateSpec.Cores,
+			GatewayIPv4:      config.Config.Network.ContainerGateway,
 			IPv4Address:      record.IPAddress,
 			CIDRBlock:        config.Config.Network.ContainerCIDR,
-			NameServer:       comp.ContainerRestrictions.Nameserver,
-			SearchDomain:     comp.ContainerRestrictions.SearchDomain,
+			NameServer:       config.Config.Network.ContainerNameserver,
+			SearchDomain:     config.Config.Network.ContainerSearchDomain,
 		},
 	}
 

@@ -119,6 +119,12 @@ func CreateNewCompWithLogger(request *db.CreateCompetitionRequest, logSink Progr
 	localLog = wrapLoggerSafe(localLog)
 
 	localLog.Statusf("Creating new competition: %s\n", request.CompetitionName)
+	templateLookup, lookupErr := ensureTemplateLookup(request)
+	if lookupErr != nil {
+		localLog.Errorf("Invalid container template configuration: %v\n", lookupErr)
+		err = lookupErr
+		return
+	}
 
 	// 1. Create structs & Data Dir(s)
 	localLog.Status("Creating data directories...")
@@ -192,15 +198,6 @@ func CreateNewCompWithLogger(request *db.CreateCompetitionRequest, logSink Progr
 		SSHPrivKeyPath: filepath.Join(dataDir, "ssh", "id_rsa"),
 		ContainerRestrictions: db.ContainerRestrictions{
 			HostnamePrefix: fmt.Sprintf("koth-%s", request.CompetitionID),
-			RootPassword:   request.ContainerSpecs.RootPassword,
-			Template:       request.ContainerSpecs.TemplatePath,
-			StoragePool:    request.ContainerSpecs.StoragePool,
-			GatewayIPv4:    request.ContainerSpecs.GatewayIPv4,
-			Nameserver:     request.ContainerSpecs.NameServerIPv4,
-			SearchDomain:   request.ContainerSpecs.SearchDomain,
-			StorageGB:      request.ContainerSpecs.StorageSizeGB,
-			MemoryMB:       request.ContainerSpecs.MemoryMB,
-			Cores:          request.ContainerSpecs.Cores,
 			IndividualCIDR: config.Config.Network.ContainerCIDR,
 		},
 		IsPrivate: !request.Privacy.Public,
@@ -298,6 +295,12 @@ func CreateNewCompWithLogger(request *db.CreateCompetitionRequest, logSink Progr
 			teamNetworks[team.ID].ipsByName[sanitizedName] = hostIP.String()
 			teamNetworks[team.ID].ipOrder = append(teamNetworks[team.ID].ipOrder, hostIP.String())
 
+			var templateSpec db.ContainerSpecTemplate
+			if templateSpec, err = ResolveContainerSpecTemplate(templateLookup, templateCfg.ContainerSpecsTemplate); err != nil {
+				localLog.Errorf("Failed to resolve template for %s: %v\n", templateCfg.Name, err)
+				return
+			}
+
 			var plan = &containerPlan{
 				team:          team,
 				name:          templateCfg.Name,
@@ -306,19 +309,19 @@ func CreateNewCompWithLogger(request *db.CreateCompetitionRequest, logSink Progr
 				ipAddress:     hostIP.String(),
 				setupScripts:  append([]string(nil), templateCfg.SetupScript...),
 				options: &proxmoxAPI.ContainerCreateOptions{
-					TemplatePath:     request.ContainerSpecs.TemplatePath,
-					StoragePool:      request.ContainerSpecs.StoragePool,
+					TemplatePath:     templateSpec.TemplatePath,
+					StoragePool:      templateSpec.StoragePool,
 					Hostname:         fmt.Sprintf("%s-team-%d-%s", comp.ContainerRestrictions.HostnamePrefix, teamIndex+1, templateCfg.Name),
-					RootPassword:     request.ContainerSpecs.RootPassword,
+					RootPassword:     templateSpec.RootPassword,
 					RootSSHPublicKey: publicKey,
-					StorageSizeGB:    request.ContainerSpecs.StorageSizeGB,
-					MemoryMB:         request.ContainerSpecs.MemoryMB,
-					Cores:            request.ContainerSpecs.Cores,
-					GatewayIPv4:      request.ContainerSpecs.GatewayIPv4,
+					StorageSizeGB:    templateSpec.StorageSizeGB,
+					MemoryMB:         templateSpec.MemoryMB,
+					Cores:            templateSpec.Cores,
+					GatewayIPv4:      config.Config.Network.ContainerGateway,
 					IPv4Address:      hostIP.String(),
 					CIDRBlock:        config.Config.Network.ContainerCIDR,
-					NameServer:       request.ContainerSpecs.NameServerIPv4,
-					SearchDomain:     request.ContainerSpecs.SearchDomain,
+					NameServer:       config.Config.Network.ContainerNameserver,
+					SearchDomain:     config.Config.Network.ContainerSearchDomain,
 				},
 			}
 
@@ -908,4 +911,57 @@ func sanitizeRelativePath(relative string) string {
 	relative = strings.Trim(relative, "/")
 
 	return relative
+}
+
+func ensureTemplateLookup(request *db.CreateCompetitionRequest) (map[string]db.ContainerSpecTemplate, error) {
+	if request == nil {
+		return nil, fmt.Errorf("competition request is nil")
+	}
+	if request.TemplateLookup != nil {
+		return request.TemplateLookup, nil
+	}
+	lookup, err := BuildContainerSpecTemplateIndex(request.ContainerSpecsTemplates)
+	if err != nil {
+		return nil, err
+	}
+	request.TemplateLookup = lookup
+	return lookup, nil
+}
+
+func BuildContainerSpecTemplateIndex(raw map[string]db.ContainerSpecTemplate) (map[string]db.ContainerSpecTemplate, error) {
+	if len(raw) == 0 {
+		return nil, fmt.Errorf("containerSpecsTemplates must include at least one entry")
+	}
+
+	index := make(map[string]db.ContainerSpecTemplate, len(raw))
+	for name, tpl := range raw {
+		key := strings.TrimSpace(name)
+		if key == "" {
+			return nil, fmt.Errorf("containerSpecsTemplates contains an empty name")
+		}
+		if _, exists := index[key]; exists {
+			return nil, fmt.Errorf("duplicate container template name %q", key)
+		}
+		index[key] = tpl
+	}
+
+	return index, nil
+}
+
+func ResolveContainerSpecTemplate(index map[string]db.ContainerSpecTemplate, rawName string) (db.ContainerSpecTemplate, error) {
+	if len(index) == 0 {
+		return db.ContainerSpecTemplate{}, fmt.Errorf("containerSpecsTemplates is not defined")
+	}
+
+	name := strings.TrimSpace(rawName)
+	if name == "" {
+		return db.ContainerSpecTemplate{}, fmt.Errorf("container config missing containerSpecsTemplate reference")
+	}
+
+	tpl, ok := index[name]
+	if !ok {
+		return db.ContainerSpecTemplate{}, fmt.Errorf("template %q is not defined", name)
+	}
+
+	return tpl, nil
 }

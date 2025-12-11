@@ -261,3 +261,34 @@ func TestContainerBulkOperations(t *testing.T) {
 		}(i)
 	}
 }
+
+func TestRawExec(t *testing.T) {
+	setup(t)
+	defer cleanup(t)
+
+	if !config.Config.Proxmox.Testing.Enabled {
+		t.Skip("Proxmox testing environment is not enabled; skipping test")
+	}
+
+	var (
+		err            error
+		env            *ProxmoxTestingEnvironment
+		stdout, stderr string
+	)
+
+	if env, err = proxmoxEnvironmentSetup(t, false, false, []string{"koth-test-raw-exec"}, false); err != nil {
+		t.Fatalf("failed to setup proxmox testing environment: %v", err)
+	}
+
+	defer env.Cleanup(t)
+
+	if stdout, stderr, err = env.api.RawExecuteWithRetries(env.results[0].Container, "root", env.configs[0].RootPassword, "whoami", 2); err != nil {
+		t.Fatalf("failed to execute raw command: %v", err)
+	}
+
+	t.Logf("Raw execution stdout: %s", stdout)
+	t.Logf("Raw execution stderr: %s", stderr)
+
+	assert.Equal(t, "root", strings.TrimSpace(stdout), "expected stdout to be 'root'")
+	assert.Equal(t, "", strings.TrimSpace(stderr), "expected stderr to be empty")
+}

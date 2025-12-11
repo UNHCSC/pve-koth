@@ -20,14 +20,17 @@ Use the sample `config.json` as a template. Important keys:
 - `competitionID`, `competitionName`, `competitionDescription`, and `competitionHost` describe the competition itself.
 - `numTeams` controls how many team slots are created.
 - `privacy.public` toggles visibility; `ldapAllowedGroupsFilter` can limit access to specific groups.
-- `containerSpecs` defines defaults for every container (template, storage pool, resources, gateway, DNS, etc.).
+- `containerSpecsTemplates` maps a name to the resource definition every container may use (template path, storage pool, root password, disk/memory/CPU limits, etc.).
 - `teamContainerConfigs` contains an array of container definitions with:
   - `name` (human label used in the dashboard),
   - `lastOctetValue` (the octet offset used when allocating IPs in the competition block),
+  - `containerSpecsTemplate` (the template name defined above that the container should be built from),
   - `setupScript`/`scoringScript` arrays that reference files inside `scripts/`,
   - `scoringSchema`, the checks the scoring loops execute.
 - `setupPublicFolder` points to a subdirectory (like `public`) that will be served to containers when they download static assets.
 - `writeupFilePath` can reference a Markdown or PDF file to share with participants after provisioning.
+
+The new network defaults (gateway, DNS, search domain, constraint CIDRs) now live under `config.toml`'s `[network]` section so individual competition configs stop repeating them, and `[container_restrictions]` lets operators whitelist specific templates/pools and cap CPU/memory/disk usage for uploaded packages.
 
 When you're ready to upload, zip the folder so that `config.json` is at the archive root and upload via the dashboard's create competition modal.
 

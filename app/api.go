@@ -403,6 +403,10 @@ func apiCreateCompetition(c *fiber.Ctx) (err error) {
 	compReq.EnableAdvancedLogging = enableAdvancedLogging
 	ctx.logf("advanced logging: %t", enableAdvancedLogging)
 
+	if err = validateCompetitionTemplates(&compReq); err != nil {
+		return ctx.fail(c, fiber.StatusBadRequest, "invalid container configuration", err)
+	}
+
 	var packageRecord *db.CompetitionPackage
 	if packageRecord, err = persistCompetitionPackage(&compReq, configData, fHeader.Filename); err != nil {
 		return ctx.fail(c, fiber.StatusInternalServerError, "failed to store competition package", err)
@@ -1488,6 +1492,82 @@ func persistCompetitionPackage(req *db.CreateCompetitionRequest, configBytes []b
 	}
 
 	return record, nil
+}
+
+func validateCompetitionTemplates(req *db.CreateCompetitionRequest) error {
+	if req == nil {
+		return fmt.Errorf("competition request is nil")
+	}
+
+	var lookup map[string]db.ContainerSpecTemplate
+	var err error
+	if lookup, err = koth.BuildContainerSpecTemplateIndex(req.ContainerSpecsTemplates); err != nil {
+		return err
+	}
+	req.TemplateLookup = lookup
+
+	restrictions := config.Config.ContainerRestrictions
+	for name, spec := range lookup {
+		if strings.TrimSpace(spec.TemplatePath) == "" {
+			return fmt.Errorf("template %q missing templatePath", name)
+		}
+		if strings.TrimSpace(spec.StoragePool) == "" {
+			return fmt.Errorf("template %q missing storagePool", name)
+		}
+		if strings.TrimSpace(spec.RootPassword) == "" {
+			return fmt.Errorf("template %q missing rootPassword", name)
+		}
+		if spec.StorageSizeGB <= 0 {
+			return fmt.Errorf("template %q invalid storageSizeGB (%d)", name, spec.StorageSizeGB)
+		}
+		if spec.MemoryMB <= 0 {
+			return fmt.Errorf("template %q invalid memoryMB (%d)", name, spec.MemoryMB)
+		}
+		if spec.Cores <= 0 {
+			return fmt.Errorf("template %q invalid cores (%d)", name, spec.Cores)
+		}
+
+		if len(restrictions.AllowedLXCTemplates) > 0 && !containsString(restrictions.AllowedLXCTemplates, spec.TemplatePath) {
+			return fmt.Errorf("template %q uses disallowed template path %q", name, spec.TemplatePath)
+		}
+		if len(restrictions.AllowedStoragePools) > 0 && !containsString(restrictions.AllowedStoragePools, spec.StoragePool) {
+			return fmt.Errorf("template %q uses disallowed storage pool %q", name, spec.StoragePool)
+		}
+
+		if restrictions.MaxDiskMB > 0 {
+			storageMB := int64(spec.StorageSizeGB) * 1024
+			if storageMB > int64(restrictions.MaxDiskMB) {
+				return fmt.Errorf("template %q requests %d MB which exceeds maxDiskMB (%d)", name, storageMB, restrictions.MaxDiskMB)
+			}
+		}
+		if restrictions.MaxMemoryMB > 0 && spec.MemoryMB > restrictions.MaxMemoryMB {
+			return fmt.Errorf("template %q requests %d MB of RAM which exceeds maxMemoryMB (%d)", name, spec.MemoryMB, restrictions.MaxMemoryMB)
+		}
+		if restrictions.MaxCPUCores > 0 && spec.Cores > restrictions.MaxCPUCores {
+			return fmt.Errorf("template %q requests %d cores which exceeds maxCPUCores (%d)", name, spec.Cores, restrictions.MaxCPUCores)
+		}
+	}
+
+	for _, cfg := range req.TeamContainerConfigs {
+		if strings.TrimSpace(cfg.ContainerSpecsTemplate) == "" {
+			return fmt.Errorf("team container %s missing containerSpecsTemplate", cfg.Name)
+		}
+		if _, err = koth.ResolveContainerSpecTemplate(lookup, cfg.ContainerSpecsTemplate); err != nil {
+			return fmt.Errorf("team container %s references invalid template %q: %w", cfg.Name, cfg.ContainerSpecsTemplate, err)
+		}
+	}
+
+	return nil
+}
+
+func containsString(list []string, value string) bool {
+	value = strings.TrimSpace(value)
+	for _, entry := range list {
+		if strings.EqualFold(strings.TrimSpace(entry), value) {
+			return true
+		}
+	}
+	return false
 }
 
 func sanitizeIdentifier(value string) string {

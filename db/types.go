@@ -165,12 +165,22 @@ type ScoringCheck struct {
 	FailPoints int    `json:"failPoints"`
 }
 
+type ContainerSpecTemplate struct {
+	TemplatePath  string `json:"templatePath"`
+	StoragePool   string `json:"storagePool"`
+	RootPassword  string `json:"rootPassword"`
+	StorageSizeGB int    `json:"storageSizeGB"`
+	MemoryMB      int    `json:"memoryMB"`
+	Cores         int    `json:"cores"`
+}
+
 type TeamContainerConfig struct {
-	Name           string         `json:"name"`
-	LastOctetValue int            `json:"lastOctetValue"`
-	SetupScript    []string       `json:"setupScript"`
-	ScoringScript  []string       `json:"scoringScript"`
-	ScoringSchema  []ScoringCheck `json:"scoringSchema"`
+	Name                   string         `json:"name"`
+	LastOctetValue         int            `json:"lastOctetValue"`
+	SetupScript            []string       `json:"setupScript"`
+	ScoringScript          []string       `json:"scoringScript"`
+	ScoringSchema          []ScoringCheck `json:"scoringSchema"`
+	ContainerSpecsTemplate string         `json:"containerSpecsTemplate"`
 }
 
 type CreateCompetitionRequest struct {
@@ -183,22 +193,12 @@ type CreateCompetitionRequest struct {
 		Public                  bool               `json:"public"`
 		LDAPAllowedGroupsFilter flexibleStringList `json:"ldapAllowedGroupsFilter"`
 	} `json:"privacy"`
-	ContainerSpecs struct {
-		TemplatePath   string      `json:"templatePath"`
-		StoragePool    string      `json:"storagePool"`
-		RootPassword   string      `json:"rootPassword"`
-		StorageSizeGB  int         `json:"storageSizeGB"`
-		MemoryMB       int         `json:"memoryMB"`
-		Cores          int         `json:"cores"`
-		GatewayIPv4    string      `json:"gatewayIPv4"`
-		CIDRBlock      flexibleInt `json:"cidrBlock"`
-		NameServerIPv4 string      `json:"nameServerIPv4"`
-		SearchDomain   string      `json:"searchDomain"`
-	} `json:"containerSpecs"`
-	TeamContainerConfigs []TeamContainerConfig `json:"teamContainerConfigs"`
-	SetupPublicFolder    string                `json:"setupPublicFolder"`
-	WriteupFilePath      string                `json:"writeupFilePath"`
-	AttachedFiles        []struct {
+	ContainerSpecsTemplates map[string]ContainerSpecTemplate `json:"containerSpecsTemplates"`
+	TeamContainerConfigs    []TeamContainerConfig            `json:"teamContainerConfigs"`
+	TemplateLookup          map[string]ContainerSpecTemplate `json:"-"`
+	SetupPublicFolder       string                           `json:"setupPublicFolder"`
+	WriteupFilePath         string                           `json:"writeupFilePath"`
+	AttachedFiles           []struct {
 		SourceFilePath string `json:"sourceFilePath"`
 		FileContent    []byte `json:"fileContent"`
 	} `json:"attachedFiles"`
