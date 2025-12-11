@@ -23,7 +23,8 @@ rm /etc/nginx/sites-enabled/default
 mkdir -p /var/www/competition_website
 
 # Use the env variable KOTH_PUBLIC_FOLDER to download the website files (Authorization cookie must be set to env KOTH_ACCESS_TOKEN)
-curl -o /var/www/competition_website/index.html "$KOTH_PUBLIC_FOLDER/website.html" -b "Authorization=$KOTH_ACCESS_TOKEN"
+# Make sure to ignore insecure SSL certificates for this download
+curl -o /var/www/competition_website/index.html "$KOTH_PUBLIC_FOLDER/website.html" -b "Authorization=$KOTH_ACCESS_TOKEN" --insecure
 
 if [ $? -ne 0 ]; then
     echo "Failed to download the competition website HTML file."
