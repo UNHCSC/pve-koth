@@ -345,7 +345,7 @@ func CreateNewCompWithLogger(request *db.CreateCompetitionRequest, logSink Progr
 	defer func() {
 		if err != nil {
 			cleanupProvisionedContainers(localLog, comp, provisioned)
-			cleanupFailedCompetitionResources(localLog, comp, createdTeams, dataDir)
+			cleanupFailedCompetitionResources(localLog, comp, createdTeams, dataDir, request.CompetitionID, request.PackagePath)
 		}
 	}()
 
@@ -690,7 +690,7 @@ func removeIDFromSlice(source []int64, target int64) []int64 {
 	return result
 }
 
-func cleanupFailedCompetitionResources(log ProgressLogger, comp *db.Competition, teams []*db.Team, dataDir string) {
+func cleanupFailedCompetitionResources(log ProgressLogger, comp *db.Competition, teams []*db.Team, dataDir, compID, packagePath string) {
 	for _, team := range teams {
 		if team == nil || team.ID == 0 {
 			continue
@@ -710,6 +710,37 @@ func cleanupFailedCompetitionResources(log ProgressLogger, comp *db.Competition,
 		if err := os.RemoveAll(dataDir); err != nil {
 			log.Errorf("Failed to remove competition data directory %s: %v\n", dataDir, err)
 		}
+	}
+
+	cleanupCompetitionPackageOnFailure(log, compID, packagePath)
+}
+
+func cleanupCompetitionPackageOnFailure(log ProgressLogger, compID, packagePath string) {
+	if packagePath != "" {
+		if err := os.RemoveAll(packagePath); err != nil {
+			log.Errorf("Failed to remove competition package directory %s: %v\n", packagePath, err)
+		} else {
+			log.Statusf("Removed package directory %s after competition creation failure", packagePath)
+		}
+	}
+
+	if compID == "" {
+		return
+	}
+
+	pkg, err := db.GetCompetitionPackageBySystemID(compID)
+	if err != nil {
+		log.Errorf("Failed to load package record for %s: %v\n", compID, err)
+		return
+	}
+	if pkg == nil {
+		return
+	}
+
+	if err := db.CompetitionPackages.Delete(pkg.ID); err != nil {
+		log.Errorf("Failed to remove package record %d during cleanup: %v\n", pkg.ID, err)
+	} else {
+		log.Statusf("Removed package record %d for %s", pkg.ID, compID)
 	}
 }
 
