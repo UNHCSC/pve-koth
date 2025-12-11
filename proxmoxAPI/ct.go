@@ -269,3 +269,59 @@ func (api *ProxmoxAPI) ListContainers(node *proxmox.Node) (containers []*proxmox
 	containers, err = node.Containers(api.bg)
 	return
 }
+
+func (api *ProxmoxAPI) RawExecute(ct *proxmox.Container, username, password, command string) (stdout string, stderr string, err error) {
+	var term *proxmox.Term
+
+	if term, err = ct.TermProxy(api.bg); err != nil {
+		err = fmt.Errorf("failed to create terminal proxy: %w", err)
+		return
+	}
+
+	var (
+		send, recv chan []byte
+		errs       chan error
+		close      func() error
+	)
+
+	if send, recv, errs, close, err = ct.TermWebSocket(term); err != nil {
+		err = fmt.Errorf("failed to create terminal websocket: %w", err)
+		return
+	}
+
+	defer close()
+
+	authCmd := fmt.Sprintf("echo '%s' | sudo -S -u root -i bash -c \"%s\"\n", password, command)
+
+	send <- []byte(authCmd)
+
+	var outputBuilder strings.Builder
+	var errorBuilder strings.Builder
+
+	done := make(chan struct{})
+
+	go func() {
+		for {
+			select {
+			case msg := <-recv:
+				outputBuilder.Write(msg)
+				fmt.Print(string(msg))
+			case err := <-errs:
+				if err != nil {
+					errorBuilder.WriteString(err.Error())
+				}
+			case <-done:
+				return
+			}
+		}
+	}()
+
+	// Wait for a short period to allow command execution
+	time.Sleep(3 * time.Second)
+	close()
+
+	stdout = outputBuilder.String()
+	stderr = errorBuilder.String()
+
+	return
+}
