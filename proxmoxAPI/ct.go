@@ -278,7 +278,10 @@ func (api *ProxmoxAPI) RawExecute(ct *proxmox.Container, username, password, com
 		return
 	}
 
-	// term.User = determineTerminalUser(term.User, username, api.tokenUser)
+	if term.User = determineTerminalUser(term.User, username, api.tokenUser); term.User == "" {
+		err = fmt.Errorf("terminal websocket response did not include a user")
+		return
+	}
 
 	var (
 		send, recv chan []byte
@@ -340,6 +343,10 @@ func determineTerminalUser(existing, desired, tokenUser string) string {
 
 	if user == "" {
 		return ""
+	}
+
+	if sep := strings.Index(user, "!"); sep > 0 {
+		user = user[:sep]
 	}
 
 	if !strings.Contains(user, "@") {
