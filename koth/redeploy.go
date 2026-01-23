@@ -17,12 +17,13 @@ import (
 
 // RedeployContainers deletes and rebuilds the requested containers using the original competition plan.
 func RedeployContainers(ids []int64) error {
-	return RedeployContainersWithLogger(ids, containerLog, false)
+	return RedeployContainersWithLogger(ids, containerLog, false, false)
 }
 
 // RedeployContainersWithLogger behaves like RedeployContainers but routes logs through the provided logger.
 // The startAfter flag will restart each container after redeployment if true.
-func RedeployContainersWithLogger(ids []int64, log ProgressLogger, startAfter bool) error {
+// enableAdvancedLogging exposes extra provisioning/script details when true.
+func RedeployContainersWithLogger(ids []int64, log ProgressLogger, startAfter, enableAdvancedLogging bool) error {
 	normalized := normalizeContainerIDs(ids)
 	if len(normalized) == 0 {
 		return fmt.Errorf("no container IDs supplied")
@@ -39,7 +40,7 @@ func RedeployContainersWithLogger(ids []int64, log ProgressLogger, startAfter bo
 
 	for _, id := range normalized {
 		localLog.Statusf("Redeploying container %d...", id)
-		if err := redeployContainer(localLog, id, startAfter); err != nil {
+		if err := redeployContainer(localLog, id, startAfter, enableAdvancedLogging); err != nil {
 			return fmt.Errorf("container %d: %w", id, err)
 		}
 		localLog.Successf("Container %d redeployed successfully.", id)
@@ -48,7 +49,7 @@ func RedeployContainersWithLogger(ids []int64, log ProgressLogger, startAfter bo
 	return nil
 }
 
-func redeployContainer(log ProgressLogger, id int64, startAfter bool) (err error) {
+func redeployContainer(log ProgressLogger, id int64, startAfter, enableAdvancedLogging bool) (err error) {
 	var record *db.Container
 	if record, err = db.Containers.Select(id); err != nil {
 		return fmt.Errorf("lookup container: %w", err)
@@ -193,7 +194,7 @@ func redeployContainer(log ProgressLogger, id int64, startAfter bool) (err error
 	}
 	defer conn.Close()
 
-	if err = runSetupScripts(log, conn, comp, plan, network, publicFolderURL, artifactBaseURL, true); err != nil {
+	if err = runSetupScripts(log, conn, comp, plan, network, publicFolderURL, artifactBaseURL, enableAdvancedLogging); err != nil {
 		return err
 	}
 

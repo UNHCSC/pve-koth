@@ -345,7 +345,7 @@ func CreateNewCompWithLogger(request *db.CreateCompetitionRequest, logSink Progr
 	defer func() {
 		if err != nil {
 			cleanupProvisionedContainers(localLog, comp, provisioned)
-			cleanupFailedCompetitionResources(localLog, comp, createdTeams, dataDir)
+			cleanupFailedCompetitionResources(localLog, comp, createdTeams, dataDir, request.CompetitionID, request.PackagePath)
 		}
 	}()
 
@@ -370,7 +370,7 @@ func CreateNewCompWithLogger(request *db.CreateCompetitionRequest, logSink Progr
 
 		go func(plan *containerPlan, network *teamNetwork, teamLock *sync.Mutex) {
 			defer wg.Done()
-			entry, perr := provisionContainerPlan(ctx, localLog, plan, comp, network, privateKey, publicFolderURL, artifactBaseURL, teamLock, &compLock)
+			entry, perr := provisionContainerPlan(ctx, localLog, plan, comp, network, privateKey, publicFolderURL, artifactBaseURL, teamLock, &compLock, request.EnableAdvancedLogging)
 			if entry != nil {
 				provisionedMu.Lock()
 				provisioned = append(provisioned, entry)
@@ -410,7 +410,7 @@ func CreateNewCompWithLogger(request *db.CreateCompetitionRequest, logSink Progr
 	return
 }
 
-func provisionContainerPlan(ctx context.Context, log ProgressLogger, plan *containerPlan, comp *db.Competition, network *teamNetwork, privateKey, publicFolderURL, artifactBaseURL string, teamLock *sync.Mutex, compLock *sync.Mutex) (entry *provisionedContainer, err error) {
+func provisionContainerPlan(ctx context.Context, log ProgressLogger, plan *containerPlan, comp *db.Competition, network *teamNetwork, privateKey, publicFolderURL, artifactBaseURL string, teamLock *sync.Mutex, compLock *sync.Mutex, enableAdvancedLogging bool) (entry *provisionedContainer, err error) {
 	if plan == nil {
 		return nil, fmt.Errorf("container plan is nil")
 	}
@@ -471,7 +471,7 @@ func provisionContainerPlan(ctx context.Context, log ProgressLogger, plan *conta
 		}
 	}
 
-	if err = runSetupScripts(log, conn, comp, plan, network, publicFolderURL, artifactBaseURL, false); err != nil {
+	if err = runSetupScripts(log, conn, comp, plan, network, publicFolderURL, artifactBaseURL, enableAdvancedLogging); err != nil {
 		return entry, err
 	}
 
@@ -516,19 +516,29 @@ func runSetupScripts(log ProgressLogger, conn *ssh.SSHConnection, comp *db.Compe
 
 	for _, scriptPath := range plan.setupScripts {
 		var scriptURL = buildArtifactFileURL(artifactBaseURL, scriptPath)
-		log.Statusf("Running setup script %s on container %s...", scriptPath, plan.options.Hostname)
 
 		var (
 			exitCode int
+			output   string
 			command  = ssh.LoadAndRunScript(scriptURL, token, envs)
 		)
+
+		if logEnv {
+			log.Statusf("Executing setup script %s on %s with command: %s", scriptPath, plan.options.Hostname, command)
+		} else {
+			log.Statusf("Executing setup script %s on %s...", scriptPath, plan.options.Hostname)
+		}
 
 		if exitCode, _, err = conn.SendWithOutput(command); err != nil {
 			log.Errorf("Failed to execute setup script %s on %s: %v\n", scriptPath, plan.options.Hostname, err)
 			return
 		}
 
-		log.Statusf("Setup script %s exited with %d.", scriptPath, exitCode)
+		if logEnv {
+			log.Statusf("Setup script %s exited with code %d, output: %s", scriptPath, exitCode, output)
+		} else {
+			log.Statusf("Setup script %s exited with code %d.", scriptPath, exitCode)
+		}
 
 		if exitCode != 0 {
 			err = fmt.Errorf("setup script %s exited with code %d", scriptPath, exitCode)
@@ -587,14 +597,7 @@ func formatScriptEnv(envs map[string]any) string {
 
 	var parts []string
 	for _, key := range keys {
-		value := envs[key]
-		text := fmt.Sprintf("%v", value)
-		if key == "KOTH_ACCESS_TOKEN" && text != "" {
-			if len(text) > 8 {
-				text = fmt.Sprintf("%s...", text[:8])
-			}
-		}
-		parts = append(parts, fmt.Sprintf("%s=%s", key, text))
+		parts = append(parts, fmt.Sprintf("%s=%v", key, envs[key]))
 	}
 
 	return strings.Join(parts, " ")
@@ -687,7 +690,7 @@ func removeIDFromSlice(source []int64, target int64) []int64 {
 	return result
 }
 
-func cleanupFailedCompetitionResources(log ProgressLogger, comp *db.Competition, teams []*db.Team, dataDir string) {
+func cleanupFailedCompetitionResources(log ProgressLogger, comp *db.Competition, teams []*db.Team, dataDir, compID, packagePath string) {
 	for _, team := range teams {
 		if team == nil || team.ID == 0 {
 			continue
@@ -707,6 +710,37 @@ func cleanupFailedCompetitionResources(log ProgressLogger, comp *db.Competition,
 		if err := os.RemoveAll(dataDir); err != nil {
 			log.Errorf("Failed to remove competition data directory %s: %v\n", dataDir, err)
 		}
+	}
+
+	cleanupCompetitionPackageOnFailure(log, compID, packagePath)
+}
+
+func cleanupCompetitionPackageOnFailure(log ProgressLogger, compID, packagePath string) {
+	if packagePath != "" {
+		if err := os.RemoveAll(packagePath); err != nil {
+			log.Errorf("Failed to remove competition package directory %s: %v\n", packagePath, err)
+		} else {
+			log.Statusf("Removed package directory %s after competition creation failure", packagePath)
+		}
+	}
+
+	if compID == "" {
+		return
+	}
+
+	pkg, err := db.GetCompetitionPackageBySystemID(compID)
+	if err != nil {
+		log.Errorf("Failed to load package record for %s: %v\n", compID, err)
+		return
+	}
+	if pkg == nil {
+		return
+	}
+
+	if err := db.CompetitionPackages.Delete(pkg.ID); err != nil {
+		log.Errorf("Failed to remove package record %d during cleanup: %v\n", pkg.ID, err)
+	} else {
+		log.Statusf("Removed package record %d for %s", pkg.ID, compID)
 	}
 }
 

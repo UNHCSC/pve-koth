@@ -202,5 +202,6 @@ type CreateCompetitionRequest struct {
 		SourceFilePath string `json:"sourceFilePath"`
 		FileContent    []byte `json:"fileContent"`
 	} `json:"attachedFiles"`
-	PackagePath string `json:"-"`
+	PackagePath           string `json:"-"`
+	EnableAdvancedLogging bool   `json:"enableAdvancedLogging"`
 }

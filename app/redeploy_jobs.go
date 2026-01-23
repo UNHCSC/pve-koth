@@ -12,8 +12,9 @@ import (
 
 type redeployJob struct {
 	*streamJob
-	containerIDs []int64
-	startAfter   bool
+	containerIDs          []int64
+	startAfter            bool
+	enableAdvancedLogging bool
 }
 
 var (
@@ -21,11 +22,12 @@ var (
 	redeployJobsMu sync.RWMutex
 )
 
-func newRedeployJob(user *auth.AuthUser, ids []int64, startAfter bool) *redeployJob {
+func newRedeployJob(user *auth.AuthUser, ids []int64, startAfter, enableAdvancedLogging bool) *redeployJob {
 	var job = &redeployJob{
-		streamJob:    newStreamJob("redeploy_job", uploadActor(user)),
-		containerIDs: append([]int64(nil), ids...),
-		startAfter:   startAfter,
+		streamJob:             newStreamJob("redeploy_job", uploadActor(user)),
+		containerIDs:          append([]int64(nil), ids...),
+		startAfter:            startAfter,
+		enableAdvancedLogging: enableAdvancedLogging,
 	}
 
 	registerRedeployJob(job)
@@ -80,8 +82,8 @@ func startRedeployJob(job *redeployJob) {
 	markContainersRedeploying(job.containerIDs)
 	go func() {
 		defer job.markDone()
-		job.Statusf("Redeploy job started for containers: %v (start when finished: %t)", job.containerIDs, job.startAfter)
-		if err := koth.RedeployContainersWithLogger(job.containerIDs, job, job.startAfter); err != nil {
+		job.Statusf("Redeploy job started for containers: %v (start when finished: %t, advanced logging: %t)", job.containerIDs, job.startAfter, job.enableAdvancedLogging)
+		if err := koth.RedeployContainersWithLogger(job.containerIDs, job, job.startAfter, job.enableAdvancedLogging); err != nil {
 			job.Errorf("Redeploy failed: %v", err)
 		} else {
 			job.Successf("Redeploy completed successfully")

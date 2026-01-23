@@ -39,7 +39,7 @@ Scripts executed inside each container receive the following environment variabl
 - `KOTH_TEAM_ID` — the numeric team ID in the database.
 - `KOTH_HOSTNAME` — the container hostname assigned by the provisioning logic.
 - `KOTH_IP` — the actual IPv4 assigned to the container.
-- `KOTH_PUBLIC_FOLDER` — the HTTP base URL where `setupPublicFolder` contents are served; combine with `KOTH_ACCESS_TOKEN` for authenticated fetches.
+- `KOTH_PUBLIC_FOLDER` — the HTTP base URL where `setupPublicFolder` contents are served; combine with `KOTH_ACCESS_TOKEN` for authenticated fetches. **Note: For setups with self-signed certs on the King of the Hill server, you MUST pass a flag to ignore SSL errors (e.g., `--insecure` for `curl`, or `--no-check-certificate` for `wget`).**
 - `KOTH_ACCESS_TOKEN` — a time-limited bearer token (30 minutes) that scripts include when downloading artifacts from the admin server.
 - `KOTH_CONTAINER_IPS` — a comma-separated list of every IP in this team's subnet block.
 - `KOTH_CONTAINER_IPS_<name>` — single env vars for each container, derived from the container configuration names (e.g., `KOTH_CONTAINER_IPS_website`).

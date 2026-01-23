@@ -15,6 +15,6 @@ func SetEnvs(envs map[string]any) (result string) {
 }
 
 func LoadAndRunScript(scriptURL, accessToken string, envs map[string]any) (fullCommandlet string) {
-	fullCommandlet = fmt.Sprintf("wget --header='Cookie: Authorization=%s' -qO- '%s' | %s bash -s --", accessToken, scriptURL, SetEnvs(envs))
+	fullCommandlet = fmt.Sprintf("wget --no-check-certificate --header='Cookie: Authorization=%s' -qO- '%s' | %s bash -s --", accessToken, scriptURL, SetEnvs(envs))
 	return
 }
