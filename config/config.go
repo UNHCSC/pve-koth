@@ -41,6 +41,8 @@ type Configuration struct {
 		Port     string `toml:"port" default:"8006" validate:"required"`              // Proxmox VE API port (usually "8006")
 		TokenID  string `toml:"token_id" default:"" validate:"required"`              // Proxmox VE API token ID (e.g. "laas-api-token-id")
 		Secret   string `toml:"secret" default:"" validate:"required"`                // Proxmox VE API token secret
+		Username string `toml:"username" default:""`                                  // Proxmox VE username (with realm) for ticket-based console auth, e.g. "root@pam"
+		Password string `toml:"password" default:""`                                  // Proxmox VE password for ticket-based console auth
 		Testing  struct {
 			Enabled        bool   `toml:"enabled" default:"false"`                                                                          // Enable Proxmox VE integration testing mode
 			SubnetCIDR     string `toml:"subnet_cidr" default:"10.255.0.0/16"`                                                              // Subnet CIDR to use for testing VMs

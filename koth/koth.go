@@ -18,6 +18,7 @@ import (
 	"github.com/UNHCSC/pve-koth/db"
 	"github.com/UNHCSC/pve-koth/proxmoxAPI"
 	"github.com/UNHCSC/pve-koth/ssh"
+	"github.com/luthermonson/go-proxmox"
 	"github.com/z46-dev/go-logger"
 )
 
@@ -455,26 +456,18 @@ func provisionContainerPlan(ctx context.Context, log ProgressLogger, plan *conta
 		}
 	}
 
-	log.Statusf("Waiting for container %d (%s) to come online...", createResult.CTID, plan.ipAddress)
-	if err = ssh.WaitOnline(plan.ipAddress); err != nil {
-		log.Errorf("Container %d did not come online: %v\n", createResult.CTID, err)
-		return entry, err
-	}
-
-	var conn *ssh.SSHConnection
-	if conn, err = ssh.ConnectOnceReadyWithRetry("root", plan.ipAddress, 22, 5, ssh.WithPrivateKey([]byte(privateKey))); err != nil {
-		log.Errorf("Failed to connect to container %d via SSH: %v\n", createResult.CTID, err)
-		return entry, err
-	}
-	defer conn.Close()
-
 	if ctx != nil {
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return entry, ctxErr
 		}
 	}
 
-	if err = runSetupScripts(log, conn, comp, plan, network, publicFolderURL, artifactBaseURL, enableAdvancedLogging); err != nil {
+	if err = waitForConsoleReady(api, createResult.Container, plan.options.RootPassword); err != nil {
+		log.Errorf("Container %d console not ready: %v\n", createResult.CTID, err)
+		return entry, err
+	}
+
+	if err = runSetupScripts(log, api, createResult.Container, comp, plan, network, publicFolderURL, artifactBaseURL, enableAdvancedLogging); err != nil {
 		return entry, err
 	}
 
@@ -501,7 +494,7 @@ func provisionContainerPlan(ctx context.Context, log ProgressLogger, plan *conta
 	return entry, nil
 }
 
-func runSetupScripts(log ProgressLogger, conn *ssh.SSHConnection, comp *db.Competition, plan *containerPlan, network *teamNetwork, publicFolderURL, artifactBaseURL string, logEnv bool) (err error) {
+func runSetupScripts(log ProgressLogger, api *proxmoxAPI.ProxmoxAPI, ct *proxmox.Container, comp *db.Competition, plan *containerPlan, network *teamNetwork, publicFolderURL, artifactBaseURL string, logEnv bool) (err error) {
 	if len(plan.setupScripts) == 0 {
 		log.Statusf("No setup scripts defined for %s; skipping.", plan.options.Hostname)
 		return nil
@@ -522,7 +515,6 @@ func runSetupScripts(log ProgressLogger, conn *ssh.SSHConnection, comp *db.Compe
 
 		var (
 			exitCode int
-			output   string
 			command  = ssh.LoadAndRunScript(scriptURL, token, envs)
 		)
 
@@ -532,13 +524,14 @@ func runSetupScripts(log ProgressLogger, conn *ssh.SSHConnection, comp *db.Compe
 			log.Statusf("Executing setup script %s on %s...", scriptPath, plan.options.Hostname)
 		}
 
-		if exitCode, _, err = conn.SendWithOutput(command); err != nil {
+		var stderr, stdout string
+		if stdout, stderr, exitCode, err = api.RawExecuteWithRetries(ct, "root", plan.options.RootPassword, command, 2); err != nil {
 			log.Errorf("Failed to execute setup script %s on %s: %v\n", scriptPath, plan.options.Hostname, err)
 			return
 		}
 
 		if logEnv {
-			log.Statusf("Setup script %s exited with code %d, output: %s", scriptPath, exitCode, output)
+			log.Statusf("Setup script %s exited with code %d, stdout: %s, stderr: %s", scriptPath, exitCode, stdout, stderr)
 		} else {
 			log.Statusf("Setup script %s exited with code %d.", scriptPath, exitCode)
 		}
@@ -549,13 +542,20 @@ func runSetupScripts(log ProgressLogger, conn *ssh.SSHConnection, comp *db.Compe
 			return
 		}
 
-		if err = conn.Reset(); err != nil {
-			log.Errorf("Failed to reset SSH session for %s: %v\n", plan.options.Hostname, err)
-			return
-		}
 	}
 
 	return nil
+}
+
+func waitForConsoleReady(api *proxmoxAPI.ProxmoxAPI, ct *proxmox.Container, rootPassword string) error {
+	const attempts = 5
+	for i := 0; i < attempts; i++ {
+		if _, _, exitCode, err := api.RawExecuteWithRetries(ct, "root", rootPassword, "echo KOTH_READY", 0); err == nil && exitCode == 0 {
+			return nil
+		}
+		time.Sleep(time.Second * time.Duration(i+1))
+	}
+	return fmt.Errorf("container console not ready for raw execution")
 }
 
 func buildScriptEnv(comp *db.Competition, plan *containerPlan, network *teamNetwork, publicFolderURL string) map[string]any {

@@ -271,9 +271,12 @@ func TestRawExec(t *testing.T) {
 	}
 
 	var (
-		err            error
-		env            *ProxmoxTestingEnvironment
-		stdout, stderr string
+		err                 error
+		env                 *ProxmoxTestingEnvironment
+		stdout, stderr      string
+		exitCode            int
+		failStdout, failErr string
+		failCode            int
 	)
 
 	if env, err = proxmoxEnvironmentSetup(t, false, false, []string{"koth-test-raw-exec"}, false); err != nil {
@@ -282,13 +285,69 @@ func TestRawExec(t *testing.T) {
 
 	defer env.Cleanup(t)
 
-	if stdout, stderr, err = env.api.RawExecuteWithRetries(env.results[0].Container, "root", env.configs[0].RootPassword, "whoami", 2); err != nil {
+	if stdout, stderr, exitCode, err = env.api.RawExecuteWithRetries(env.results[0].Container, "root", env.configs[0].RootPassword, "whoami", 2); err != nil {
 		t.Fatalf("failed to execute raw command: %v", err)
 	}
 
 	t.Logf("Raw execution stdout: %s", stdout)
 	t.Logf("Raw execution stderr: %s", stderr)
 
+	assert.Equal(t, 0, exitCode, "expected exit code to be success")
 	assert.Equal(t, "root", strings.TrimSpace(stdout), "expected stdout to be 'root'")
+	assert.Equal(t, "", strings.TrimSpace(stderr), "expected stderr to be empty")
+
+	if failStdout, failErr, failCode, err = env.api.RawExecuteWithRetries(env.results[0].Container, "root", env.configs[0].RootPassword, "sh -lc 'echo boom >&2; exit 42'", 2); err != nil {
+		t.Fatalf("failed to execute failing raw command: %v", err)
+	}
+
+	t.Logf("Failing raw execution stdout: %s", failStdout)
+	t.Logf("Failing raw execution stderr: %s", failErr)
+
+	assert.Equal(t, 42, failCode, "expected exit code to be 42")
+	assert.Equal(t, "", strings.TrimSpace(failStdout), "expected stdout to be empty on failure")
+	assert.Equal(t, "boom", strings.TrimSpace(failErr), "expected stderr to contain error message")
+}
+
+func TestRawExecWithBuiltCommand(t *testing.T) {
+	setup(t)
+	defer cleanup(t)
+
+	if !config.Config.Proxmox.Testing.Enabled {
+		t.Skip("Proxmox testing environment is not enabled; skipping test")
+	}
+
+	var (
+		err            error
+		env            *ProxmoxTestingEnvironment
+		stdout, stderr string
+		exitCode       int
+		commandEnvs    map[string]any
+		artifact       string
+	)
+
+	if env, err = proxmoxEnvironmentSetup(t, false, true, []string{"koth-test-raw-exec-built"}, false); err != nil {
+		t.Fatalf("failed to setup proxmox testing environment: %v", err)
+	}
+
+	defer env.Cleanup(t)
+
+	if commandEnvs, err = env.EnvsFor(0); err != nil {
+		t.Fatalf("failed to get environment variables for command execution: %v", err)
+	}
+
+	if artifact, err = readPublicFileContents("artifact.txt"); err != nil {
+		t.Fatalf("failed to read artifact contents: %v", err)
+	}
+
+	command := ssh.LoadAndRunScript(fmt.Sprintf("http://%s/koth-test-envs.sh", net.JoinHostPort(ssh.MustLocalIP(), env.webPort)), env.reqToken(), commandEnvs)
+	if stdout, stderr, exitCode, err = env.api.RawExecuteWithRetries(env.results[0].Container, "root", env.configs[0].RootPassword, command, 2); err != nil {
+		t.Fatalf("failed to execute built command via raw exec: %v", err)
+	}
+
+	t.Logf("Raw built command stdout: %s", stdout)
+	t.Logf("Raw built command stderr: %s", stderr)
+
+	assert.Equal(t, 0, exitCode, "expected built command to succeed")
+	assert.Equal(t, strings.TrimSpace(artifact), strings.TrimSpace(stdout), "expected output to match artifact contents")
 	assert.Equal(t, "", strings.TrimSpace(stderr), "expected stderr to be empty")
 }

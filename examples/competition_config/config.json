@@ -31,7 +31,7 @@
             "name": "website",
             "lastOctetValue": 1,
             "containerSpecsTemplate": "ubuntu-heavy",
-            "setupScript": ["scripts/setup_global.sh", "scripts/setup_website.sh"],
+            "setupScript": ["scripts/setup_global_apt.sh", "scripts/setup_website.sh"],
             "scoringScript": ["scripts/score_global.sh", "scripts/score_website.sh"],
             "scoringSchema": [
                 {
@@ -64,7 +64,7 @@
             "name": "grafana",
             "lastOctetValue": 2,
             "containerSpecsTemplate": "ubuntu-light",
-            "setupScript": ["scripts/setup_global.sh", "scripts/setup_grafana.sh"],
+            "setupScript": ["scripts/setup_global_apt.sh", "scripts/setup_grafana.sh"],
             "scoringScript": ["scripts/score_global.sh", "scripts/score_grafana.sh"],
             "scoringSchema": [
                 {

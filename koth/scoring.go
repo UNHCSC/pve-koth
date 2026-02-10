@@ -131,7 +131,6 @@ func loadCompetitionDefinition(comp *db.Competition) (*db.CreateCompetitionReque
 func scoreCompetition(comp *db.Competition) (err error) {
 	var (
 		req       *db.CreateCompetitionRequest
-		privKey   []byte
 		compNet   *net.IPNet
 		logPrefix = fmt.Sprintf("competition %s", comp.SystemID)
 	)
@@ -154,14 +153,6 @@ func scoreCompetition(comp *db.Competition) (err error) {
 
 	if _, compNet, err = net.ParseCIDR(comp.NetworkCIDR); err != nil {
 		return fmt.Errorf("%s network invalid: %w", logPrefix, err)
-	}
-
-	if comp.SSHPrivKeyPath == "" {
-		return fmt.Errorf("%s missing SSH private key path", logPrefix)
-	}
-
-	if privKey, err = os.ReadFile(comp.SSHPrivKeyPath); err != nil {
-		return fmt.Errorf("%s failed to read SSH key: %w", logPrefix, err)
 	}
 
 	publicFolderURL := competitionPublicFolderURL(comp)
@@ -188,7 +179,7 @@ func scoreCompetition(comp *db.Competition) (err error) {
 				return
 			}
 
-			teamScore, containerResults, teamErr := scoreTeam(comp, team, teamIndex, req.TeamContainerConfigs, network, publicFolderURL, artifactBaseURL, privKey)
+			teamScore, containerResults, teamErr := scoreTeam(comp, team, teamIndex, req.TeamContainerConfigs, network, publicFolderURL, artifactBaseURL, req)
 			if teamErr != nil {
 				scoringLog.Errorf("team %s scoring had errors: %v\n", team.Name, teamErr)
 			}
@@ -233,7 +224,7 @@ func buildTeamNetwork(compSubnet *net.IPNet, teamIndex int, configs []db.TeamCon
 	return network, nil
 }
 
-func scoreTeam(comp *db.Competition, team *db.Team, teamIndex int, configs []db.TeamContainerConfig, network *teamNetwork, publicFolderURL, artifactBaseURL string, privateKey []byte) (int, []containerScoreResult, error) {
+func scoreTeam(comp *db.Competition, team *db.Team, teamIndex int, configs []db.TeamContainerConfig, network *teamNetwork, publicFolderURL, artifactBaseURL string, req *db.CreateCompetitionRequest) (int, []containerScoreResult, error) {
 	if team == nil || len(configs) == 0 {
 		return 0, nil, nil
 	}
@@ -252,6 +243,12 @@ func scoreTeam(comp *db.Competition, team *db.Team, teamIndex int, configs []db.
 			continue
 		}
 
+		templateSpec, specErr := ResolveContainerSpecTemplate(req.TemplateLookup, containerCfg.ContainerSpecsTemplate)
+		if specErr != nil {
+			scoringLog.Errorf("failed to resolve template %s for %s: %v\n", containerCfg.ContainerSpecsTemplate, containerCfg.Name, specErr)
+			continue
+		}
+
 		plan := &containerPlan{
 			team:          team,
 			name:          containerCfg.Name,
@@ -259,7 +256,8 @@ func scoreTeam(comp *db.Competition, team *db.Team, teamIndex int, configs []db.
 			order:         order,
 			ipAddress:     ipAddress,
 			options: &proxmoxAPI.ContainerCreateOptions{
-				Hostname: fmt.Sprintf("%s-team-%d-%s", comp.ContainerRestrictions.HostnamePrefix, teamIndex+1, containerCfg.Name),
+				Hostname:     fmt.Sprintf("%s-team-%d-%s", comp.ContainerRestrictions.HostnamePrefix, teamIndex+1, containerCfg.Name),
+				RootPassword: templateSpec.RootPassword,
 			},
 		}
 
@@ -275,7 +273,7 @@ func scoreTeam(comp *db.Competition, team *db.Team, teamIndex int, configs []db.
 		wg.Add(1)
 		go func(cfg db.TeamContainerConfig, plan *containerPlan) {
 			defer wg.Done()
-			score, detail := scoreContainer(comp, plan, network, publicFolderURL, artifactBaseURL, cfg.ScoringScript, cfg.ScoringSchema, privateKey)
+			score, detail := scoreContainer(comp, plan, network, publicFolderURL, artifactBaseURL, cfg.ScoringScript, cfg.ScoringSchema)
 			mu.Lock()
 			total += score
 			results = append(results, detail)
@@ -287,7 +285,7 @@ func scoreTeam(comp *db.Competition, team *db.Team, teamIndex int, configs []db.
 	return total, results, nil
 }
 
-func scoreContainer(comp *db.Competition, plan *containerPlan, network *teamNetwork, publicFolderURL, artifactBaseURL string, scoringScripts []string, checks []db.ScoringCheck, privateKey []byte) (int, containerScoreResult) {
+func scoreContainer(comp *db.Competition, plan *containerPlan, network *teamNetwork, publicFolderURL, artifactBaseURL string, scoringScripts []string, checks []db.ScoringCheck) (int, containerScoreResult) {
 	var result containerScoreResult
 	if plan != nil {
 		result.Name = plan.name
@@ -340,59 +338,55 @@ func scoreContainer(comp *db.Competition, plan *containerPlan, network *teamNetw
 		defer RevokeAccessToken(token)
 	}
 
-	var conn *ssh.SSHConnection
-	var err error
-
-	if len(scoringScripts) > 0 {
-		if conn, err = connectForScoring(plan.ipAddress, privateKey); err != nil {
-			scoringLog.Errorf("failed to connect to %s (%s): %v\n", plan.options.Hostname, plan.ipAddress, err)
-		}
-		if conn == nil {
-			scoringLog.Statusf("Container %s (%s) is offline or unreachable; scoring will treat checks as failed\n", plan.options.Hostname, plan.ipAddress)
-		}
+	record, recErr := containerRecordForTeam(plan.team.ID, plan.name)
+	if recErr != nil {
+		scoringLog.Errorf("failed to load container record for %s: %v\n", plan.options.Hostname, recErr)
+		return 0, result
+	}
+	if record == nil {
+		scoringLog.Statusf("Container %s not provisioned; treating checks as failed\n", plan.options.Hostname)
+		return 0, result
 	}
 
-	if conn != nil {
-		defer conn.Close()
-		for _, scriptPath := range scoringScripts {
-			scriptPath = strings.TrimSpace(scriptPath)
-			if scriptPath == "" {
-				continue
-			}
+	ct, ctErr := api.Container(int(record.PVEID))
+	if ctErr != nil {
+		scoringLog.Errorf("failed to load container %s (CTID %d): %v\n", plan.options.Hostname, record.PVEID, ctErr)
+		return 0, result
+	}
 
-			scriptURL := buildArtifactFileURL(artifactBaseURL, scriptPath)
-			command := ssh.LoadAndRunScript(scriptURL, token, envs)
+	for _, scriptPath := range scoringScripts {
+		scriptPath = strings.TrimSpace(scriptPath)
+		if scriptPath == "" {
+			continue
+		}
 
-			exitCode, output, execErr := conn.SendWithOutput(command)
-			if execErr != nil {
-				scoringLog.Errorf("failed to execute scoring script %s on %s: %v\n", scriptPath, plan.options.Hostname, execErr)
-			} else if exitCode != 0 {
-				scoringLog.Errorf("scoring script %s exited %d on %s\nOutput:\n%s\n", scriptPath, exitCode, plan.options.Hostname, summarizeScriptOutput(string(output)))
-			} else if payload, parseErr := parseCheckPayload(output); parseErr != nil {
-				scoringLog.Errorf("invalid scoring payload from %s (%s): %v\n", plan.options.Hostname, scriptPath, parseErr)
-			} else {
-				for rawID, passed := range payload {
-					id := strings.TrimSpace(rawID)
-					if id == "" {
-						continue
-					}
-					index, known := schemaIndex[id]
-					if !known {
-						scoringLog.Statusf("scoring script %s reported unknown check %s on %s; ignoring\n", scriptPath, id, plan.options.Hostname)
-						continue
-					}
-					if reported[id] {
-						scoringLog.Statusf("scoring script %s reported duplicate result for check %s on %s; keeping first result\n", scriptPath, id, plan.options.Hostname)
-						continue
-					}
-					reported[id] = true
-					result.Checks[index].Passed = passed
+		scriptURL := buildArtifactFileURL(artifactBaseURL, scriptPath)
+		command := ssh.LoadAndRunScript(scriptURL, token, envs)
+
+		stdout, stderr, exitCode, execErr := api.RawExecuteWithRetries(ct, "root", plan.options.RootPassword, command, 2)
+		if execErr != nil {
+			scoringLog.Errorf("failed to execute scoring script %s on %s: %v\n", scriptPath, plan.options.Hostname, execErr)
+		} else if exitCode != 0 {
+			scoringLog.Errorf("scoring script %s exited %d on %s\nStdout:\n%s\nStderr:\n%s\n", scriptPath, exitCode, plan.options.Hostname, summarizeScriptOutput(stdout), summarizeScriptOutput(stderr))
+		} else if payload, parseErr := parseCheckPayload([]byte(stdout)); parseErr != nil {
+			scoringLog.Errorf("invalid scoring payload from %s (%s): %v\nStdout:\n%s\nStderr:\n%s\n", plan.options.Hostname, scriptPath, parseErr, summarizeScriptOutput(stdout), summarizeScriptOutput(stderr))
+		} else {
+			for rawID, passed := range payload {
+				id := strings.TrimSpace(rawID)
+				if id == "" {
+					continue
 				}
-			}
-
-			if resetErr := conn.Reset(); resetErr != nil {
-				scoringLog.Errorf("failed to reset SSH session on %s: %v\n", plan.options.Hostname, resetErr)
-				break
+				index, known := schemaIndex[id]
+				if !known {
+					scoringLog.Statusf("scoring script %s reported unknown check %s on %s; ignoring\n", scriptPath, id, plan.options.Hostname)
+					continue
+				}
+				if reported[id] {
+					scoringLog.Statusf("scoring script %s reported duplicate result for check %s on %s; keeping first result\n", scriptPath, id, plan.options.Hostname)
+					continue
+				}
+				reported[id] = true
+				result.Checks[index].Passed = passed
 			}
 		}
 	}
@@ -489,14 +483,18 @@ func containerStatusForTeam(teamID int64, configName string) (string, error) {
 	return strings.TrimSpace(results[0].Status), nil
 }
 
-func connectForScoring(ip string, privateKey []byte) (*ssh.SSHConnection, error) {
-	var lastErr error
-	for attempt := 0; attempt < 3; attempt++ {
-		var conn *ssh.SSHConnection
-		if conn, lastErr = ssh.Connect("root", ip, 22, ssh.WithPrivateKey(privateKey)); lastErr == nil {
-			return conn, nil
-		}
-		time.Sleep(time.Second * time.Duration(attempt+1))
+func containerRecordForTeam(teamID int64, configName string) (*db.Container, error) {
+	filter := gomysql.NewFilter().
+		KeyCmp(db.Containers.FieldBySQLName("team_id"), gomysql.OpEqual, teamID).
+		And().
+		KeyCmp(db.Containers.FieldBySQLName("container_config_name"), gomysql.OpEqual, strings.TrimSpace(configName))
+
+	results, err := db.Containers.SelectAllWithFilter(filter)
+	if err != nil {
+		return nil, err
 	}
-	return nil, lastErr
+	if len(results) == 0 {
+		return nil, nil
+	}
+	return results[0], nil
 }

@@ -7,19 +7,28 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/UNHCSC/pve-koth/config"
 	"github.com/luthermonson/go-proxmox"
 )
 
 type ProxmoxAPI struct {
-	createLock  sync.Mutex
-	client      *proxmox.Client
-	bg          context.Context
-	Nodes       []*proxmox.Node
-	Cluster     *proxmox.Cluster
-	nodeRotator int
-	tokenUser   string
+	createLock         sync.Mutex
+	client             *proxmox.Client
+	bg                 context.Context
+	Nodes              []*proxmox.Node
+	Cluster            *proxmox.Cluster
+	nodeRotator        int
+	tokenUser          string
+	apiHost            string
+	apiPort            string
+	username           string
+	password           string
+	InsecureSkipVerify bool
+	httpClient         *http.Client
+	ConnectTimeout     time.Duration
+	CommandTimeout     time.Duration
 }
 
 type ProxmoxAPICreateResult struct {
@@ -33,20 +42,33 @@ type ProxmoxAPIBulkCreateResult struct {
 }
 
 func InitProxmox() (api *ProxmoxAPI, err error) {
+	var (
+		tlsConfig  = &tls.Config{InsecureSkipVerify: true}
+		transport  = &http.Transport{TLSClientConfig: tlsConfig}
+		httpClient = &http.Client{
+			Transport: transport,
+			Timeout:   30 * time.Second,
+		}
+	)
+
 	api = &ProxmoxAPI{
 		client: proxmox.NewClient(
 			fmt.Sprintf("https://%s:%s/api2/json", config.Config.Proxmox.Hostname, config.Config.Proxmox.Port),
 			proxmox.WithHTTPClient(&http.Client{
-				Transport: &http.Transport{
-					TLSClientConfig: &tls.Config{
-						InsecureSkipVerify: true,
-					},
-				},
+				Transport: transport,
 			}),
 			proxmox.WithAPIToken(config.Config.Proxmox.TokenID, config.Config.Proxmox.Secret),
 		),
-		bg:    context.Background(),
-		Nodes: make([]*proxmox.Node, 0),
+		bg:                 context.Background(),
+		Nodes:              make([]*proxmox.Node, 0),
+		apiHost:            config.Config.Proxmox.Hostname,
+		apiPort:            config.Config.Proxmox.Port,
+		username:           config.Config.Proxmox.Username,
+		password:           config.Config.Proxmox.Password,
+		InsecureSkipVerify: true,
+		httpClient:         httpClient,
+		ConnectTimeout:     30 * time.Second,
+		CommandTimeout:     5 * time.Minute,
 	}
 	if token := config.Config.Proxmox.TokenID; token != "" {
 		if parts := strings.SplitN(token, "!", 2); len(parts) > 0 {
