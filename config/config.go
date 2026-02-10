@@ -41,6 +41,8 @@ type Configuration struct {
 		Port     string `toml:"port" default:"8006" validate:"required"`              // Proxmox VE API port (usually "8006")
 		TokenID  string `toml:"token_id" default:"" validate:"required"`              // Proxmox VE API token ID (e.g. "laas-api-token-id")
 		Secret   string `toml:"secret" default:"" validate:"required"`                // Proxmox VE API token secret
+		Username string `toml:"username" default:""`                                  // Proxmox VE username (with realm) for ticket-based console auth, e.g. "root@pam"
+		Password string `toml:"password" default:""`                                  // Proxmox VE password for ticket-based console auth
 		Testing  struct {
 			Enabled        bool   `toml:"enabled" default:"false"`                                                                          // Enable Proxmox VE integration testing mode
 			SubnetCIDR     string `toml:"subnet_cidr" default:"10.255.0.0/16"`                                                              // Subnet CIDR to use for testing VMs
@@ -56,7 +58,8 @@ type Configuration struct {
 		BasePath string `toml:"base_path" default:"./koth_live_data" validate:"required"` // Root directory where uploaded competition packages are stored
 	} `toml:"storage"`
 
-	Network NetworkConfig `toml:"network"`
+	Network               NetworkConfig               `toml:"network"`
+	ContainerRestrictions ContainerRestrictionsConfig `toml:"container_restrictions"`
 }
 
 var Config Configuration
@@ -66,8 +69,19 @@ type NetworkConfig struct {
 	CompetitionSubnetPrefix int    `toml:"competition_subnet_prefix" default:"16" validate:"min=8,max=30"`
 	TeamSubnetPrefix        int    `toml:"team_subnet_prefix" default:"24" validate:"min=8,max=30"`
 	ContainerCIDR           int    `toml:"container_cidr" default:"8" validate:"min=1,max=30"`
+	ContainerGateway        string `toml:"container_gateway" default:"10.0.0.1" validate:"required,ipv4"`
+	ContainerNameserver     string `toml:"container_nameserver" default:"10.0.0.2" validate:"required,ipv4"`
+	ContainerSearchDomain   string `toml:"container_search_domain" default:"cyber.lab" validate:"required"`
 
 	parsedPool *net.IPNet `toml:"-"`
+}
+
+type ContainerRestrictionsConfig struct {
+	AllowedLXCTemplates []string `toml:"allowed_lxc_templates" default:"[]"`
+	AllowedStoragePools []string `toml:"allowed_storage_pools" default:"[]"`
+	MaxCPUCores         int      `toml:"max_cpu_cores" default:"4" validate:"min=1"`
+	MaxMemoryMB         int      `toml:"max_memory_mb" default:"8192" validate:"min=1"`
+	MaxDiskMB           int      `toml:"max_disk_mb" default:"32768" validate:"min=1"`
 }
 
 func (n *NetworkConfig) initialize() error {

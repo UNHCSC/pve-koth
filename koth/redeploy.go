@@ -11,7 +11,6 @@ import (
 	"github.com/UNHCSC/pve-koth/config"
 	"github.com/UNHCSC/pve-koth/db"
 	"github.com/UNHCSC/pve-koth/proxmoxAPI"
-	"github.com/UNHCSC/pve-koth/ssh"
 	"github.com/luthermonson/go-proxmox"
 )
 
@@ -91,14 +90,6 @@ func redeployContainer(log ProgressLogger, id int64, startAfter, enableAdvancedL
 	}
 	var publicKey = strings.TrimSpace(string(publicKeyData))
 
-	var privateKey []byte
-	if comp.SSHPrivKeyPath == "" {
-		return fmt.Errorf("competition %s missing SSH private key", comp.SystemID)
-	}
-	if privateKey, err = os.ReadFile(comp.SSHPrivKeyPath); err != nil {
-		return fmt.Errorf("read ssh private key: %w", err)
-	}
-
 	if strings.TrimSpace(record.IPAddress) == "" {
 		return fmt.Errorf("container %d missing recorded IP address", record.PVEID)
 	}
@@ -117,6 +108,11 @@ func redeployContainer(log ProgressLogger, id int64, startAfter, enableAdvancedL
 		return fmt.Errorf("build team network: %w", err)
 	}
 
+	var templateSpec db.ContainerSpecTemplate
+	if templateSpec, err = ResolveContainerSpecTemplate(req.TemplateLookup, cfg.ContainerSpecsTemplate); err != nil {
+		return fmt.Errorf("resolve template for %s: %w", cfg.Name, err)
+	}
+
 	plan := &containerPlan{
 		team:          team,
 		name:          cfg.Name,
@@ -125,19 +121,19 @@ func redeployContainer(log ProgressLogger, id int64, startAfter, enableAdvancedL
 		ipAddress:     record.IPAddress,
 		setupScripts:  append([]string(nil), cfg.SetupScript...),
 		options: &proxmoxAPI.ContainerCreateOptions{
-			TemplatePath:     comp.ContainerRestrictions.Template,
-			StoragePool:      comp.ContainerRestrictions.StoragePool,
+			TemplatePath:     templateSpec.TemplatePath,
+			StoragePool:      templateSpec.StoragePool,
 			Hostname:         fmt.Sprintf("%s-team-%d-%s", comp.ContainerRestrictions.HostnamePrefix, teamIndex+1, cfg.Name),
-			RootPassword:     comp.ContainerRestrictions.RootPassword,
+			RootPassword:     templateSpec.RootPassword,
 			RootSSHPublicKey: publicKey,
-			StorageSizeGB:    comp.ContainerRestrictions.StorageGB,
-			MemoryMB:         comp.ContainerRestrictions.MemoryMB,
-			Cores:            comp.ContainerRestrictions.Cores,
-			GatewayIPv4:      comp.ContainerRestrictions.GatewayIPv4,
+			StorageSizeGB:    templateSpec.StorageSizeGB,
+			MemoryMB:         templateSpec.MemoryMB,
+			Cores:            templateSpec.Cores,
+			GatewayIPv4:      config.Config.Network.ContainerGateway,
 			IPv4Address:      record.IPAddress,
 			CIDRBlock:        config.Config.Network.ContainerCIDR,
-			NameServer:       comp.ContainerRestrictions.Nameserver,
-			SearchDomain:     comp.ContainerRestrictions.SearchDomain,
+			NameServer:       config.Config.Network.ContainerNameserver,
+			SearchDomain:     config.Config.Network.ContainerSearchDomain,
 		},
 	}
 
@@ -184,17 +180,11 @@ func redeployContainer(log ProgressLogger, id int64, startAfter, enableAdvancedL
 		return fmt.Errorf("failed to start container: %w", err)
 	}
 
-	if err = ssh.WaitOnline(plan.ipAddress); err != nil {
-		return fmt.Errorf("container %d did not come online: %w", record.PVEID, err)
+	if err = waitForConsoleReady(api, newContainer, plan.options.RootPassword); err != nil {
+		return fmt.Errorf("container %d console not ready: %w", record.PVEID, err)
 	}
 
-	var conn *ssh.SSHConnection
-	if conn, err = ssh.ConnectOnceReadyWithRetry("root", plan.ipAddress, 22, 5, ssh.WithPrivateKey(privateKey)); err != nil {
-		return fmt.Errorf("failed to connect to container %d via SSH: %w", record.PVEID, err)
-	}
-	defer conn.Close()
-
-	if err = runSetupScripts(log, conn, comp, plan, network, publicFolderURL, artifactBaseURL, enableAdvancedLogging); err != nil {
+	if err = runSetupScripts(log, api, newContainer, comp, plan, network, publicFolderURL, artifactBaseURL, enableAdvancedLogging); err != nil {
 		return err
 	}
 

@@ -8,23 +8,30 @@
         "public": true,
         "ldapAllowedGroupsFilter": []
     },
-    "containerSpecs": {
-        "templatePath": "isos-ct_templates:vztmpl/ubuntu-25.04-standard_25.04-1.1_amd64.tar.zst",
-        "storagePool": "team",
-        "rootPassword": "password123",
-        "storageSizeGB": 8,
-        "memoryMB": 1024,
-        "cores": 1,
-        "gatewayIPv4": "10.0.0.1",
-        "cidrBlock": 8,
-        "nameServerIPv4": "10.0.0.2",
-        "searchDomain": "cyber.lab"
+    "containerSpecsTemplates": {
+        "ubuntu-light": {
+            "templatePath": "isos-ct_templates:vztmpl/ubuntu-25.04-standard_25.04-1.1_amd64.tar.zst",
+            "storagePool": "team",
+            "rootPassword": "password123",
+            "storageSizeGB": 8,
+            "memoryMB": 512,
+            "cores": 1
+        },
+        "ubuntu-heavy": {
+            "templatePath": "isos-ct_templates:vztmpl/ubuntu-25.04-standard_25.04-1.1_amd64.tar.zst",
+            "storagePool": "team",
+            "rootPassword": "password123",
+            "storageSizeGB": 16,
+            "memoryMB": 2048,
+            "cores": 2
+        }
     },
     "teamContainerConfigs": [
         {
             "name": "website",
             "lastOctetValue": 1,
-            "setupScript": ["scripts/setup_global.sh", "scripts/setup_website.sh"],
+            "containerSpecsTemplate": "ubuntu-heavy",
+            "setupScript": ["scripts/setup_global_apt.sh", "scripts/setup_website.sh"],
             "scoringScript": ["scripts/score_global.sh", "scripts/score_website.sh"],
             "scoringSchema": [
                 {
@@ -52,10 +59,12 @@
                     "failPoints": -2
                 }
             ]
-        }, {
+        },
+        {
             "name": "grafana",
             "lastOctetValue": 2,
-            "setupScript": ["scripts/setup_global.sh", "scripts/setup_grafana.sh"],
+            "containerSpecsTemplate": "ubuntu-light",
+            "setupScript": ["scripts/setup_global_apt.sh", "scripts/setup_grafana.sh"],
             "scoringScript": ["scripts/score_global.sh", "scripts/score_grafana.sh"],
             "scoringSchema": [
                 {

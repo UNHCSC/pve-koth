@@ -18,6 +18,7 @@ import (
 	"github.com/UNHCSC/pve-koth/db"
 	"github.com/UNHCSC/pve-koth/proxmoxAPI"
 	"github.com/UNHCSC/pve-koth/ssh"
+	"github.com/luthermonson/go-proxmox"
 	"github.com/z46-dev/go-logger"
 )
 
@@ -119,6 +120,12 @@ func CreateNewCompWithLogger(request *db.CreateCompetitionRequest, logSink Progr
 	localLog = wrapLoggerSafe(localLog)
 
 	localLog.Statusf("Creating new competition: %s\n", request.CompetitionName)
+	templateLookup, lookupErr := ensureTemplateLookup(request)
+	if lookupErr != nil {
+		localLog.Errorf("Invalid container template configuration: %v\n", lookupErr)
+		err = lookupErr
+		return
+	}
 
 	// 1. Create structs & Data Dir(s)
 	localLog.Status("Creating data directories...")
@@ -192,15 +199,6 @@ func CreateNewCompWithLogger(request *db.CreateCompetitionRequest, logSink Progr
 		SSHPrivKeyPath: filepath.Join(dataDir, "ssh", "id_rsa"),
 		ContainerRestrictions: db.ContainerRestrictions{
 			HostnamePrefix: fmt.Sprintf("koth-%s", request.CompetitionID),
-			RootPassword:   request.ContainerSpecs.RootPassword,
-			Template:       request.ContainerSpecs.TemplatePath,
-			StoragePool:    request.ContainerSpecs.StoragePool,
-			GatewayIPv4:    request.ContainerSpecs.GatewayIPv4,
-			Nameserver:     request.ContainerSpecs.NameServerIPv4,
-			SearchDomain:   request.ContainerSpecs.SearchDomain,
-			StorageGB:      request.ContainerSpecs.StorageSizeGB,
-			MemoryMB:       request.ContainerSpecs.MemoryMB,
-			Cores:          request.ContainerSpecs.Cores,
 			IndividualCIDR: config.Config.Network.ContainerCIDR,
 		},
 		IsPrivate: !request.Privacy.Public,
@@ -298,6 +296,12 @@ func CreateNewCompWithLogger(request *db.CreateCompetitionRequest, logSink Progr
 			teamNetworks[team.ID].ipsByName[sanitizedName] = hostIP.String()
 			teamNetworks[team.ID].ipOrder = append(teamNetworks[team.ID].ipOrder, hostIP.String())
 
+			var templateSpec db.ContainerSpecTemplate
+			if templateSpec, err = ResolveContainerSpecTemplate(templateLookup, templateCfg.ContainerSpecsTemplate); err != nil {
+				localLog.Errorf("Failed to resolve template for %s: %v\n", templateCfg.Name, err)
+				return
+			}
+
 			var plan = &containerPlan{
 				team:          team,
 				name:          templateCfg.Name,
@@ -306,19 +310,19 @@ func CreateNewCompWithLogger(request *db.CreateCompetitionRequest, logSink Progr
 				ipAddress:     hostIP.String(),
 				setupScripts:  append([]string(nil), templateCfg.SetupScript...),
 				options: &proxmoxAPI.ContainerCreateOptions{
-					TemplatePath:     request.ContainerSpecs.TemplatePath,
-					StoragePool:      request.ContainerSpecs.StoragePool,
+					TemplatePath:     templateSpec.TemplatePath,
+					StoragePool:      templateSpec.StoragePool,
 					Hostname:         fmt.Sprintf("%s-team-%d-%s", comp.ContainerRestrictions.HostnamePrefix, teamIndex+1, templateCfg.Name),
-					RootPassword:     request.ContainerSpecs.RootPassword,
+					RootPassword:     templateSpec.RootPassword,
 					RootSSHPublicKey: publicKey,
-					StorageSizeGB:    request.ContainerSpecs.StorageSizeGB,
-					MemoryMB:         request.ContainerSpecs.MemoryMB,
-					Cores:            request.ContainerSpecs.Cores,
-					GatewayIPv4:      request.ContainerSpecs.GatewayIPv4,
+					StorageSizeGB:    templateSpec.StorageSizeGB,
+					MemoryMB:         templateSpec.MemoryMB,
+					Cores:            templateSpec.Cores,
+					GatewayIPv4:      config.Config.Network.ContainerGateway,
 					IPv4Address:      hostIP.String(),
 					CIDRBlock:        config.Config.Network.ContainerCIDR,
-					NameServer:       request.ContainerSpecs.NameServerIPv4,
-					SearchDomain:     request.ContainerSpecs.SearchDomain,
+					NameServer:       config.Config.Network.ContainerNameserver,
+					SearchDomain:     config.Config.Network.ContainerSearchDomain,
 				},
 			}
 
@@ -452,26 +456,18 @@ func provisionContainerPlan(ctx context.Context, log ProgressLogger, plan *conta
 		}
 	}
 
-	log.Statusf("Waiting for container %d (%s) to come online...", createResult.CTID, plan.ipAddress)
-	if err = ssh.WaitOnline(plan.ipAddress); err != nil {
-		log.Errorf("Container %d did not come online: %v\n", createResult.CTID, err)
-		return entry, err
-	}
-
-	var conn *ssh.SSHConnection
-	if conn, err = ssh.ConnectOnceReadyWithRetry("root", plan.ipAddress, 22, 5, ssh.WithPrivateKey([]byte(privateKey))); err != nil {
-		log.Errorf("Failed to connect to container %d via SSH: %v\n", createResult.CTID, err)
-		return entry, err
-	}
-	defer conn.Close()
-
 	if ctx != nil {
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return entry, ctxErr
 		}
 	}
 
-	if err = runSetupScripts(log, conn, comp, plan, network, publicFolderURL, artifactBaseURL, enableAdvancedLogging); err != nil {
+	if err = waitForConsoleReady(api, createResult.Container, plan.options.RootPassword); err != nil {
+		log.Errorf("Container %d console not ready: %v\n", createResult.CTID, err)
+		return entry, err
+	}
+
+	if err = runSetupScripts(log, api, createResult.Container, comp, plan, network, publicFolderURL, artifactBaseURL, enableAdvancedLogging); err != nil {
 		return entry, err
 	}
 
@@ -498,7 +494,7 @@ func provisionContainerPlan(ctx context.Context, log ProgressLogger, plan *conta
 	return entry, nil
 }
 
-func runSetupScripts(log ProgressLogger, conn *ssh.SSHConnection, comp *db.Competition, plan *containerPlan, network *teamNetwork, publicFolderURL, artifactBaseURL string, logEnv bool) (err error) {
+func runSetupScripts(log ProgressLogger, api *proxmoxAPI.ProxmoxAPI, ct *proxmox.Container, comp *db.Competition, plan *containerPlan, network *teamNetwork, publicFolderURL, artifactBaseURL string, logEnv bool) (err error) {
 	if len(plan.setupScripts) == 0 {
 		log.Statusf("No setup scripts defined for %s; skipping.", plan.options.Hostname)
 		return nil
@@ -519,7 +515,6 @@ func runSetupScripts(log ProgressLogger, conn *ssh.SSHConnection, comp *db.Compe
 
 		var (
 			exitCode int
-			output   string
 			command  = ssh.LoadAndRunScript(scriptURL, token, envs)
 		)
 
@@ -529,13 +524,14 @@ func runSetupScripts(log ProgressLogger, conn *ssh.SSHConnection, comp *db.Compe
 			log.Statusf("Executing setup script %s on %s...", scriptPath, plan.options.Hostname)
 		}
 
-		if exitCode, _, err = conn.SendWithOutput(command); err != nil {
+		var stderr, stdout string
+		if stdout, stderr, exitCode, err = api.RawExecuteWithRetries(ct, "root", plan.options.RootPassword, command, 2); err != nil {
 			log.Errorf("Failed to execute setup script %s on %s: %v\n", scriptPath, plan.options.Hostname, err)
 			return
 		}
 
 		if logEnv {
-			log.Statusf("Setup script %s exited with code %d, output: %s", scriptPath, exitCode, output)
+			log.Statusf("Setup script %s exited with code %d, stdout: %s, stderr: %s", scriptPath, exitCode, stdout, stderr)
 		} else {
 			log.Statusf("Setup script %s exited with code %d.", scriptPath, exitCode)
 		}
@@ -546,13 +542,20 @@ func runSetupScripts(log ProgressLogger, conn *ssh.SSHConnection, comp *db.Compe
 			return
 		}
 
-		if err = conn.Reset(); err != nil {
-			log.Errorf("Failed to reset SSH session for %s: %v\n", plan.options.Hostname, err)
-			return
-		}
 	}
 
 	return nil
+}
+
+func waitForConsoleReady(api *proxmoxAPI.ProxmoxAPI, ct *proxmox.Container, rootPassword string) error {
+	const attempts = 5
+	for i := 0; i < attempts; i++ {
+		if _, _, exitCode, err := api.RawExecuteWithRetries(ct, "root", rootPassword, "echo KOTH_READY", 0); err == nil && exitCode == 0 {
+			return nil
+		}
+		time.Sleep(time.Second * time.Duration(i+1))
+	}
+	return fmt.Errorf("container console not ready for raw execution")
 }
 
 func buildScriptEnv(comp *db.Competition, plan *containerPlan, network *teamNetwork, publicFolderURL string) map[string]any {
@@ -908,4 +911,57 @@ func sanitizeRelativePath(relative string) string {
 	relative = strings.Trim(relative, "/")
 
 	return relative
+}
+
+func ensureTemplateLookup(request *db.CreateCompetitionRequest) (map[string]db.ContainerSpecTemplate, error) {
+	if request == nil {
+		return nil, fmt.Errorf("competition request is nil")
+	}
+	if request.TemplateLookup != nil {
+		return request.TemplateLookup, nil
+	}
+	lookup, err := BuildContainerSpecTemplateIndex(request.ContainerSpecsTemplates)
+	if err != nil {
+		return nil, err
+	}
+	request.TemplateLookup = lookup
+	return lookup, nil
+}
+
+func BuildContainerSpecTemplateIndex(raw map[string]db.ContainerSpecTemplate) (map[string]db.ContainerSpecTemplate, error) {
+	if len(raw) == 0 {
+		return nil, fmt.Errorf("containerSpecsTemplates must include at least one entry")
+	}
+
+	index := make(map[string]db.ContainerSpecTemplate, len(raw))
+	for name, tpl := range raw {
+		key := strings.TrimSpace(name)
+		if key == "" {
+			return nil, fmt.Errorf("containerSpecsTemplates contains an empty name")
+		}
+		if _, exists := index[key]; exists {
+			return nil, fmt.Errorf("duplicate container template name %q", key)
+		}
+		index[key] = tpl
+	}
+
+	return index, nil
+}
+
+func ResolveContainerSpecTemplate(index map[string]db.ContainerSpecTemplate, rawName string) (db.ContainerSpecTemplate, error) {
+	if len(index) == 0 {
+		return db.ContainerSpecTemplate{}, fmt.Errorf("containerSpecsTemplates is not defined")
+	}
+
+	name := strings.TrimSpace(rawName)
+	if name == "" {
+		return db.ContainerSpecTemplate{}, fmt.Errorf("container config missing containerSpecsTemplate reference")
+	}
+
+	tpl, ok := index[name]
+	if !ok {
+		return db.ContainerSpecTemplate{}, fmt.Errorf("template %q is not defined", name)
+	}
+
+	return tpl, nil
 }

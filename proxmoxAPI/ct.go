@@ -269,3 +269,45 @@ func (api *ProxmoxAPI) ListContainers(node *proxmox.Node) (containers []*proxmox
 	containers, err = node.Containers(api.bg)
 	return
 }
+
+func determineTerminalUser(existing, desired, tokenUser string) string {
+	if existing != "" {
+		return existing
+	}
+
+	user := desired
+	if user == "" {
+		user = tokenUser
+	}
+
+	if user == "" {
+		return ""
+	}
+
+	if sep := strings.Index(user, "!"); sep > 0 {
+		user = user[:sep]
+	}
+
+	if !strings.Contains(user, "@") {
+		user = fmt.Sprintf("%s@pam", user)
+	}
+
+	return user
+}
+
+func (api *ProxmoxAPI) RawExecuteWithRetries(ct *proxmox.Container, username, password, command string, numRetries int) (stdout string, stderr string, exitCode int, err error) {
+	for i := range numRetries + 1 {
+		if stdout, stderr, exitCode, err = api.RawExecute(ct, username, password, command); err == nil {
+			if i > 0 {
+				// fmt.Printf("Raw execute on container %d succeeded after %d retries.\n", ct.VMID, i-1)
+			}
+
+			return
+		}
+
+		// fmt.Printf("Raw execute on container %d failed: %v. Retrying (%d/%d)...\n", ct.VMID, err, i+1, numRetries)
+		time.Sleep(time.Second * (time.Duration(i) + 1))
+	}
+
+	return
+}

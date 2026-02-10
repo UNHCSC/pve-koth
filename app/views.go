@@ -2,8 +2,10 @@ package app
 
 import (
 	"github.com/UNHCSC/pve-koth/auth"
+	"github.com/UNHCSC/pve-koth/config"
 	"github.com/UNHCSC/pve-koth/db"
 	"github.com/gofiber/fiber/v2"
+	"strings"
 )
 
 func showLanding(c *fiber.Ctx) (err error) {
@@ -98,12 +100,83 @@ func showDashboard(c *fiber.Ctx) (err error) {
 		displayName = "Guest"
 	}
 
+	comps, compsErr := db.Competitions.SelectAll()
+	if compsErr != nil {
+		appLog.Errorf("failed to load competitions for dashboard resources: %v\n", compsErr)
+		comps = nil
+	}
+
 	return c.Render("dashboard", bindWithLocals(c, fiber.Map{
-		"Title":     "Dashboard",
-		"User":      displayName,
-		"LoggedIn":  user != nil,
-		"CanManage": canManage,
+		"Title":        "Dashboard",
+		"User":         displayName,
+		"LoggedIn":     user != nil,
+		"CanManage":    canManage,
+		"ResourceInfo": fiber.Map{"Restrictions": config.Config.ContainerRestrictions, "Network": buildNetworkResourceStats(comps)},
 	}), "layout")
+}
+
+func buildNetworkResourceStats(comps []*db.Competition) fiber.Map {
+	network := config.Config.Network
+	info := fiber.Map{
+		"PoolCIDR":          network.PoolCIDR,
+		"CompetitionPrefix": network.CompetitionSubnetPrefix,
+		"TeamPrefix":        network.TeamSubnetPrefix,
+		"ContainerCIDR":     network.ContainerCIDR,
+		"Gateway":           network.ContainerGateway,
+		"Nameserver":        network.ContainerNameserver,
+		"SearchDomain":      network.ContainerSearchDomain,
+		"TotalSubnets":      0,
+		"UsedSubnets":       0,
+		"FreeSubnets":       0,
+		"UsagePercent":      0.0,
+	}
+
+	pool := network.ParsedPool()
+	if pool == nil {
+		return info
+	}
+
+	maskOnes, _ := pool.Mask.Size()
+	diff := network.CompetitionSubnetPrefix - maskOnes
+	total := 0
+	if diff >= 0 && diff < 63 {
+		total = 1 << diff
+	}
+
+	seen := map[string]struct{}{}
+	for _, comp := range comps {
+		if comp == nil {
+			continue
+		}
+		cidr := strings.TrimSpace(comp.NetworkCIDR)
+		if cidr == "" {
+			continue
+		}
+		if _, ok := seen[cidr]; ok {
+			continue
+		}
+		seen[cidr] = struct{}{}
+	}
+
+	used := len(seen)
+	free := total - used
+	if free < 0 {
+		free = 0
+	}
+
+	usage := 0.0
+	if total > 0 {
+		usage = (float64(used) / float64(total)) * 100
+		if usage > 100 {
+			usage = 100
+		}
+	}
+
+	info["TotalSubnets"] = total
+	info["UsedSubnets"] = used
+	info["FreeSubnets"] = free
+	info["UsagePercent"] = usage
+	return info
 }
 
 func showUnauthorized(c *fiber.Ctx) error {

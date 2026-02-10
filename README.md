@@ -12,6 +12,9 @@ This project modernizes the original [proxmox KOTH](https://github.com/UNHCSC/pr
 - Go 1.20+ (or later) for the server binaries.
 - Node.js 20+ / npm for building the dashboard assets.
 - A valid `config.toml` next to the repository root to describe the database, Proxmox, and LDAP settings.
+- A service user on your Proxmox cluster set up with `VM.Audit, VM.Console` permissions on Proxmox. (You can create a custom role with these permissions and assign only that role to the service user for better security.)
+- Container setup and scoring are performed via the Proxmox console (raw exec), not SSH. If your setup scripts rely on SSH access, be sure to install and enable an OpenSSH server inside the container.
+- Some container templates do not ship an SSH server; add `openssh-server` (or your distro equivalent) in your setup scripts if you require SSH.
 
 ## Installation
 

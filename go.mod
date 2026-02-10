@@ -1,6 +1,6 @@
 module github.com/UNHCSC/pve-koth
 
-go 1.24.7
+go 1.25
 
 require (
 	github.com/BurntSushi/toml v1.5.0
@@ -10,7 +10,8 @@ require (
 	github.com/gofiber/fiber/v2 v2.52.10
 	github.com/gofiber/template/html/v2 v2.1.3
 	github.com/golang-jwt/jwt/v5 v5.3.0
-	github.com/luthermonson/go-proxmox v0.2.3
+	github.com/gorilla/websocket v1.5.3
+	github.com/luthermonson/go-proxmox v0.3.2
 	github.com/stretchr/testify v1.10.0
 	github.com/z46-dev/go-logger v0.0.0-20250326164502-928461111cea
 	github.com/z46-dev/gomysql v0.0.0-20251125024913-d4c93b06ec11
@@ -34,7 +35,6 @@ require (
 	github.com/gofiber/template v1.8.3 // indirect
 	github.com/gofiber/utils v1.2.0 // indirect
 	github.com/google/uuid v1.6.0 // indirect
-	github.com/gorilla/websocket v1.5.3 // indirect
 	github.com/jinzhu/copier v0.4.0 // indirect
 	github.com/klauspost/compress v1.18.2 // indirect
 	github.com/leodido/go-urn v1.4.0 // indirect

@@ -1,7 +1,0 @@
-version: "2"
-linters:
-formatters:
-issues:
-output:
-run:
-severity:
