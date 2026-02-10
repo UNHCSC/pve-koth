@@ -3,6 +3,7 @@ config.toml
 
 # Ignore database files
 *.db
+*.db-journal
 
 # Ignore dependency directories and lock files
 node_modules

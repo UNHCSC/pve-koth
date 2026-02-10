@@ -24,14 +24,6 @@
             "storageSizeGB": 16,
             "memoryMB": 2048,
             "cores": 2
-        },
-        "rocky": {
-            "templatePath": "isos-ct_templates:vztmpl/rockylinux-9-default_20240912_amd64.tar.xz",
-            "storagePool": "team",
-            "rootPassword": "password123",
-            "storageSizeGB": 8,
-            "memoryMB": 1024,
-            "cores": 1
         }
     },
     "teamContainerConfigs": [
@@ -98,27 +90,6 @@
                     "name": "Prometheus Collector Configured",
                     "passPoints": 2,
                     "failPoints": -2
-                }
-            ]
-        },
-        {
-            "name": "rocky",
-            "lastOctetValue": 4,
-            "containerSpecsTemplate": "rocky",
-            "setupScript": ["scripts/setup_global.sh"],
-            "scoringScript": ["scripts/score_global.sh"],
-            "scoringSchema": [
-                {
-                    "id": "icmp",
-                    "name": "Container Reachable (ICMP)",
-                    "passPoints": 1,
-                    "failPoints": 0
-                },
-                {
-                    "id": "exporter",
-                    "name": "Prometheus Exporter Running",
-                    "passPoints": 1,
-                    "failPoints": -1
                 }
             ]
         }
