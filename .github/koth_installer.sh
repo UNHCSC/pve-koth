@@ -68,13 +68,25 @@ install_release() {
 
     local install_dir=$(util_confirm_value "Enter installation directory" "/opt/pve-koth")
     local koth_user="pve-koth"
+    local archive_path
+
+    if [[ -z "$download_url" || "$download_url" == "null" ]]; then
+        echo "Error: release ${release_tag} does not have a downloadable asset."
+        exit 1
+    fi
 
     # Create installation directory if it doesn't exist
     sudo mkdir -p "$install_dir"
-    sudo chown "$(whoami)":"$(whoami)" "$install_dir"
+
+    # Stop the service before replacing files during an update.
+    sudo systemctl stop pve-koth.service || true
 
     # Download and extract the release
-    wget -q -O - "$download_url" | tar -xz -C "$install_dir"
+    archive_path=$(mktemp)
+    trap 'rm -f "$archive_path"' EXIT
+    wget -q -O "$archive_path" "$download_url"
+    test -s "$archive_path"
+    sudo tar --overwrite --no-same-owner --no-same-permissions --touch -xzf "$archive_path" -C "$install_dir"
 
     # Create a dedicated user for KotH (if not exists)
     if ! id -u "$koth_user" &> /dev/null; then
@@ -84,13 +96,13 @@ install_release() {
     # Set ownership of installation directory
     sudo chown -R "$koth_user":"$koth_user" "$install_dir"
 
-    # The binaries should be given the necessary capabilities
-    for bin in "$install_dir"/*; do
-        if [ -x "$bin" ] && [ ! -d "$bin" ]; then
-            echo "Setting capabilities for $bin"
-            sudo setcap 'cap_net_bind_service=+ep' "$bin"
-        fi
-    done
+    # The server binary needs permission to bind privileged ports.
+    if [ ! -x "${install_dir}/pve-koth" ]; then
+        echo "Error: expected executable not found at ${install_dir}/pve-koth"
+        exit 1
+    fi
+    echo "Setting capabilities for ${install_dir}/pve-koth"
+    sudo setcap 'cap_net_bind_service=+ep' "${install_dir}/pve-koth"
 
     # Create a systemd service file
     local service_file="/etc/systemd/system/pve-koth.service"
