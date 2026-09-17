@@ -16,7 +16,9 @@ func MustLocalIP() string {
 	)
 
 	if output, err = exec.Command("hostname", "-I").Output(); err == nil {
-		return strings.TrimSpace(string(output))
+		if ip := firstUsableIPv4(string(output)); ip != "" {
+			return ip
+		}
 	}
 
 	var interfaces []net.Interface
@@ -39,6 +41,16 @@ func MustLocalIP() string {
 	}
 
 	panic("no valid IP address found")
+}
+
+func firstUsableIPv4(output string) string {
+	for _, field := range strings.Fields(output) {
+		if ip := net.ParseIP(field); ip != nil && ip.To4() != nil && !ip.IsLoopback() {
+			return ip.String()
+		}
+	}
+
+	return ""
 }
 
 func PingHost(ipAddress string) (pinged bool) {

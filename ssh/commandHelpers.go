@@ -1,17 +1,31 @@
 package ssh
 
-import "fmt"
+import (
+	"fmt"
+	"sort"
+	"strings"
+)
 
 func SetEnvs(envs map[string]any) (result string) {
-	for k, v := range envs {
-		result += fmt.Sprintf("%s=\"%v\" ", k, v)
+	var keys []string
+	for k := range envs {
+		keys = append(keys, k)
 	}
+	sort.Strings(keys)
 
-	if result != "" {
-		result = result[:len(result)-1]
+	for i, k := range keys {
+		if i > 0 {
+			result += " "
+		}
+
+		result += fmt.Sprintf("%s=%s", k, shellQuote(fmt.Sprint(envs[k])))
 	}
 
 	return
+}
+
+func shellQuote(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", "'\"'\"'") + "'"
 }
 
 func LoadAndRunScript(scriptURL, accessToken string, envs map[string]any) (fullCommandlet string) {
@@ -20,8 +34,11 @@ func LoadAndRunScript(scriptURL, accessToken string, envs map[string]any) (fullC
 		envPrefix += " "
 	}
 
-	download := fmt.Sprintf("if command -v curl >/dev/null 2>&1; then curl -fsSLk --header \"Cookie: Authorization=%s\" \"%s\"; elif command -v wget >/dev/null 2>&1; then wget --no-check-certificate --header='Cookie: Authorization=%s' -qO- '%s'; else echo \"curl or wget required\" >&2; exit 1; fi", accessToken, scriptURL, accessToken, scriptURL)
+	quotedCookie := shellQuote(fmt.Sprintf("Cookie: Authorization=%s", accessToken))
+	quotedURL := shellQuote(scriptURL)
 
-	fullCommandlet = fmt.Sprintf("%s| %sbash -s --", download, envPrefix)
+	download := fmt.Sprintf("tmp_script=$(mktemp) && trap 'rm -f \"$tmp_script\"' EXIT && if command -v curl >/dev/null 2>&1; then curl -fsSLk --header %s -o \"$tmp_script\" %s; elif command -v wget >/dev/null 2>&1; then wget --no-check-certificate --header=%s -qO \"$tmp_script\" %s; else echo \"curl or wget required\" >&2; exit 1; fi && test -s \"$tmp_script\"", quotedCookie, quotedURL, quotedCookie, quotedURL)
+
+	fullCommandlet = fmt.Sprintf("%s && %sbash \"$tmp_script\"", download, envPrefix)
 	return fullCommandlet
 }
