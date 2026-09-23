@@ -4,4 +4,5 @@ $results = [ordered]@{
     ssh_service = (Get-Service -Name "sshd" -ErrorAction SilentlyContinue).Status -eq "Running"
     ssh_listener = [bool](Get-NetTCPConnection -State Listen -LocalPort 22 -ErrorAction SilentlyContinue)
 }
+
 $results | ConvertTo-Json -Compress

@@ -1,62 +1,81 @@
 {
-  "schemaVersion": 2,
-  "competitionID": "mixedGuests",
-  "competitionName": "Mixed Linux and Windows",
-  "competitionDescription": "Example competition using an Ubuntu LXC guest and a Windows 11 full VM.",
-  "competitionHost": "PVE KOTH",
-  "numTeams": 1,
-  "privacy": {
-    "public": true,
-    "ldapAllowedGroupsFilter": []
-  },
-  "guestSpecTemplates": {
-    "ubuntu-lxc": {
-      "kind": "lxc",
-      "templatePath": "isos-ct_templates:vztmpl/ubuntu-25.04-standard_25.04-1.1_amd64.tar.zst",
-      "storagePool": "team",
-      "username": "root",
-      "password": "password123",
-      "diskSizeGB": 8,
-      "memoryMB": 1024,
-      "cores": 1
+    "schemaVersion": 2,
+    "competitionID": "mixedGuests",
+    "competitionName": "Mixed Linux and Windows",
+    "competitionDescription": "Example competition using an Ubuntu LXC guest and a Windows 11 full VM.",
+    "competitionHost": "PVE KOTH",
+    "numTeams": 3,
+    "privacy": {
+        "public": true,
+        "ldapAllowedGroupsFilter": []
     },
-    "windows-11": {
-      "templateRef": "koth-template-windows-11-pro-n-workstation",
-      "storagePool": "team",
-      "username": "kothadmin",
-      "password": "ChangeMe!234",
-      "diskSizeGB": 129,
-      "memoryMB": 4096,
-      "cores": 2,
-      "fullClone": true
-    }
-  },
-  "teamGuestConfigs": [
-    {
-      "name": "linux-web",
-      "lastOctetValue": 10,
-      "guestSpecsTemplate": "ubuntu-lxc",
-      "setupScript": ["scripts/setup_linux.sh"],
-      "scoringScript": ["scripts/score_linux.sh"],
-      "scoringSchema": [
-        {"id": "setup_marker", "name": "Linux setup completed", "passPoints": 2, "failPoints": -1},
-        {"id": "bash", "name": "Bash is available", "passPoints": 3, "failPoints": -1}
-      ]
+    "guestSpecTemplates": {
+        "ubuntu-lxc": {
+            "kind": "lxc",
+            "templatePath": "isos-ct_templates:vztmpl/ubuntu-25.04-standard_25.04-1.1_amd64.tar.zst",
+            "storagePool": "team",
+            "username": "root",
+            "password": "password123",
+            "diskSizeGB": 8,
+            "memoryMB": 1024,
+            "cores": 1
+        },
+        "windows-11": {
+            "templateRef": "koth-template-windows-11-pro-n-workstation",
+            "storagePool": "team",
+            "username": "kothadmin",
+            "password": "ChangeMe!234",
+            "diskSizeGB": 129,
+            "memoryMB": 4096,
+            "cores": 2,
+            "fullClone": true
+        }
     },
-    {
-      "name": "windows",
-      "lastOctetValue": 20,
-      "guestSpecsTemplate": "windows-11",
-      "setupScript": ["scripts/setup_windows.ps1"],
-      "scoringScript": ["scripts/score_windows.ps1"],
-      "scoringSchema": [
-        {"id": "rdp_service", "name": "Remote Desktop service is running", "passPoints": 2, "failPoints": -1},
-        {"id": "rdp_listener", "name": "RDP is listening on TCP 3389", "passPoints": 2, "failPoints": -1},
-        {"id": "ssh_service", "name": "OpenSSH service is running", "passPoints": 2, "failPoints": -1},
-        {"id": "ssh_listener", "name": "SSH is listening on TCP 22", "passPoints": 2, "failPoints": -1}
-      ]
-    }
-  ],
-  "setupPublicFolder": "public",
-  "writeupFilePath": "writeup.md"
+    "teamGuestConfigs": [{
+        "name": "linux-web",
+        "lastOctetValue": 10,
+        "guestSpecsTemplate": "ubuntu-lxc",
+        "setupScript": ["scripts/setup_linux.sh"],
+        "scoringScript": ["scripts/score_linux.sh"],
+        "scoringSchema": [{
+            "id": "setup_marker",
+            "name": "Linux setup completed",
+            "passPoints": 2,
+            "failPoints": -1
+        }, {
+            "id": "bash",
+            "name": "Bash is available",
+            "passPoints": 3,
+            "failPoints": -1
+        }]
+    }, {
+        "name": "windows",
+        "lastOctetValue": 20,
+        "guestSpecsTemplate": "windows-11",
+        "setupScript": ["scripts/setup_windows.ps1"],
+        "scoringScript": ["scripts/score_windows.ps1"],
+        "scoringSchema": [{
+            "id": "rdp_service",
+            "name": "Remote Desktop service is running",
+            "passPoints": 2,
+            "failPoints": -1
+        }, {
+            "id": "rdp_listener",
+            "name": "RDP is listening on TCP 3389",
+            "passPoints": 2,
+            "failPoints": -1
+        }, {
+            "id": "ssh_service",
+            "name": "OpenSSH service is running",
+            "passPoints": 2,
+            "failPoints": -1
+        }, {
+            "id": "ssh_listener",
+            "name": "SSH is listening on TCP 22",
+            "passPoints": 2,
+            "failPoints": -1
+        }]
+    }],
+    "setupPublicFolder": "public",
+    "writeupFilePath": "writeup.md"
 }
