@@ -49,17 +49,26 @@ if (-not (Get-Service -Name "sshd" -ErrorAction SilentlyContinue)) {
 Set-Service -Name "sshd" -StartupType Automatic
 $sshd = Join-Path $sshInstall "sshd.exe"
 $sshKeygen = Join-Path $sshInstall "ssh-keygen.exe"
-New-Item -ItemType Directory -Path "C:\ProgramData\ssh" -Force | Out-Null
-Remove-Item -Path "C:\ProgramData\ssh\ssh_host_*_key*" -Force -ErrorAction SilentlyContinue
+$sshData = "C:\ProgramData\ssh"
+New-Item -ItemType Directory -Path $sshData -Force | Out-Null
+$sshdConfig = Join-Path $sshData "sshd_config"
+if (-not (Test-Path -LiteralPath $sshdConfig)) {
+    Copy-Item -LiteralPath (Join-Path $sshInstall "sshd_config_default") -Destination $sshdConfig
+}
+Remove-Item -Path (Join-Path $sshData "ssh_host_*_key*") -Force -ErrorAction SilentlyContinue
 & $sshKeygen -A
 if ($LASTEXITCODE -ne 0) {
     throw "OpenSSH host-key generation failed with exit code $LASTEXITCODE"
 }
 
-& $sshd -t
-if ($LASTEXITCODE -ne 0) {
-    throw "OpenSSH configuration validation failed with exit code $LASTEXITCODE"
+$validationError = Join-Path $env:TEMP "pve-koth-sshd-validation.log"
+Remove-Item -LiteralPath $validationError -Force -ErrorAction SilentlyContinue
+$validation = Start-Process -FilePath $sshd -ArgumentList "-t" -Wait -PassThru -WindowStyle Hidden -RedirectStandardError $validationError
+if ($validation.ExitCode -ne 0) {
+    $validationMessage = Get-Content -LiteralPath $validationError -Raw -ErrorAction SilentlyContinue
+    throw "OpenSSH configuration validation failed with exit code $($validation.ExitCode): $validationMessage"
 }
+Remove-Item -LiteralPath $validationError -Force -ErrorAction SilentlyContinue
 
 Start-Service -Name "sshd"
 & schtasks.exe /Create /TN "PVE KOTH Start OpenSSH" /SC ONSTART /DELAY 0000:15 /RU SYSTEM /RL HIGHEST /TR "sc.exe start sshd" /F | Out-Null
