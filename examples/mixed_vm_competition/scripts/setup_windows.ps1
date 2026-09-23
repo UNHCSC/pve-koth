@@ -5,6 +5,13 @@ Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
 Set-Service -Name "TermService" -StartupType Automatic
 Start-Service -Name "TermService"
 
+$icmpRule = "PVE-KOTH-ICMPv4-Echo"
+if (-not (Get-NetFirewallRule -Name $icmpRule -ErrorAction SilentlyContinue)) {
+    New-NetFirewallRule -Name $icmpRule -DisplayName "PVE KOTH ICMPv4 Echo" -Enabled True -Direction Inbound -Protocol ICMPv4 -IcmpType 8 -Action Allow | Out-Null
+} else {
+    Enable-NetFirewallRule -Name $icmpRule
+}
+
 $sshInstall = "C:\Program Files\OpenSSH"
 if (-not (Get-Service -Name "sshd" -ErrorAction SilentlyContinue)) {
     $archive = Join-Path $env:TEMP "OpenSSH-Win64.zip"
