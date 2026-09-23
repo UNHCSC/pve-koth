@@ -576,7 +576,7 @@ func provisionVMPlan(ctx context.Context, log ProgressLogger, plan *guestPlan, c
 		return entry, err
 	}
 	entry.recorded = true
-	if err = api.StopVirtualMachine(vm); err != nil {
+	if err = api.ShutdownVirtualMachine(vm); err != nil {
 		return entry, err
 	}
 	record.Status = "stopped"

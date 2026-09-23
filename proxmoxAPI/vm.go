@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"math"
 	"regexp"
 	"strconv"
 	"strings"
@@ -205,6 +204,23 @@ func (api *ProxmoxAPI) StopVirtualMachine(vm *proxmox.VirtualMachine) error {
 	return waitVMTask(api.bg, task, 5*time.Minute)
 }
 
+func (api *ProxmoxAPI) ShutdownVirtualMachine(vm *proxmox.VirtualMachine) error {
+	if vm == nil {
+		return fmt.Errorf("VM is nil")
+	}
+	if err := vm.Ping(api.bg); err == nil && vm.IsStopped() {
+		return nil
+	}
+	task, err := vm.Shutdown(api.bg)
+	if err != nil {
+		if strings.Contains(strings.ToLower(err.Error()), "not running") {
+			return nil
+		}
+		return fmt.Errorf("shutdown VM %d: %w", vm.VMID, err)
+	}
+	return waitVMTask(api.bg, task, 10*time.Minute)
+}
+
 func (api *ProxmoxAPI) RebootVirtualMachine(vm *proxmox.VirtualMachine) error {
 	if vm == nil {
 		return fmt.Errorf("VM is nil")
@@ -299,9 +315,24 @@ func (api *ProxmoxAPI) ExecuteVirtualMachineCommand(vm *proxmox.VirtualMachine, 
 		}
 		time.Sleep(2 * time.Second)
 	}
-	status, err := vm.WaitForAgentExecExit(api.bg, pid, int(math.Ceil(timeout.Seconds())))
-	if err != nil {
-		return VMCommandResult{}, fmt.Errorf("wait for command on VM %d: %w", vm.VMID, err)
+	statusDeadline := time.Now().Add(timeout)
+	var status *proxmox.AgentExecStatus
+	var statusErr error
+	for time.Now().Before(statusDeadline) {
+		status, err = vm.AgentExecStatus(api.bg, pid)
+		if err == nil && status.Exited != 0 {
+			break
+		}
+		if err != nil {
+			statusErr = err
+		}
+		time.Sleep(2 * time.Second)
+	}
+	if status == nil || status.Exited == 0 {
+		if statusErr != nil {
+			return VMCommandResult{}, fmt.Errorf("wait for command on VM %d: timed out after transient guest-agent error: %w", vm.VMID, statusErr)
+		}
+		return VMCommandResult{}, fmt.Errorf("wait for command on VM %d: timed out after %s", vm.VMID, timeout)
 	}
 	result := VMCommandResult{
 		Stdout:    status.OutData,

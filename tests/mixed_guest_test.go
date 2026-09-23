@@ -1,11 +1,14 @@
 package tests
 
 import (
+	"archive/zip"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -25,9 +28,28 @@ func TestMixedLXCAndWindowsCompetition(t *testing.T) {
 		t.Skip("Proxmox testing environment is not enabled; skipping test")
 	}
 
-	source := filepath.Join("..", "examples", "mixed_vm_competition")
 	packageRoot := t.TempDir()
-	require.NoError(t, os.CopyFS(packageRoot, os.DirFS(source)))
+	archive, err := zip.OpenReader(filepath.Join("..", "examples", "mixed_vm_competition.zip"))
+	require.NoError(t, err)
+	defer archive.Close()
+	for _, entry := range archive.File {
+		name := filepath.Clean(entry.Name)
+		require.False(t, filepath.IsAbs(name) || name == ".." || strings.HasPrefix(name, ".."+string(filepath.Separator)))
+		target := filepath.Join(packageRoot, name)
+		if entry.FileInfo().IsDir() {
+			require.NoError(t, os.MkdirAll(target, 0o755))
+			continue
+		}
+		require.NoError(t, os.MkdirAll(filepath.Dir(target), 0o755))
+		source, openErr := entry.Open()
+		require.NoError(t, openErr)
+		destination, createErr := os.Create(target)
+		require.NoError(t, createErr)
+		_, copyErr := io.Copy(destination, source)
+		require.NoError(t, source.Close())
+		require.NoError(t, destination.Close())
+		require.NoError(t, copyErr)
+	}
 	raw, err := os.ReadFile(filepath.Join(packageRoot, "config.json"))
 	require.NoError(t, err)
 
@@ -37,7 +59,6 @@ func TestMixedLXCAndWindowsCompetition(t *testing.T) {
 	request.CompetitionID = fmt.Sprintf("mixedGuests%d", suffix)
 	request.CompetitionName = fmt.Sprintf("Mixed Guest Test %d", suffix)
 	request.PackagePath = packageRoot
-	request.NumTeams = 1
 	request.EnableAdvancedLogging = false
 
 	listener, err := net.Listen("tcp", "0.0.0.0:8080")
@@ -61,7 +82,7 @@ func TestMixedLXCAndWindowsCompetition(t *testing.T) {
 			t.Errorf("teardown mixed competition: %v", err)
 		}
 	}()
-	require.Len(t, comp.ContainerIDs, 2)
+	require.Len(t, comp.ContainerIDs, 6)
 
 	records := make(map[db.GuestKind]int)
 	for _, id := range comp.ContainerIDs {
@@ -70,20 +91,27 @@ func TestMixedLXCAndWindowsCompetition(t *testing.T) {
 		require.NotNil(t, record)
 		records[record.GuestKind]++
 	}
-	assert.Equal(t, 1, records[db.GuestKindLXC])
-	assert.Equal(t, 1, records[db.GuestKindQEMU])
+	assert.Equal(t, 3, records[db.GuestKindLXC])
+	assert.Equal(t, 3, records[db.GuestKindQEMU])
 
 	require.NoError(t, koth.BulkStartContainers(comp.ContainerIDs))
 	comp.ScoringActive = true
 	require.NoError(t, db.Competitions.Update(comp))
-	var team *db.Team
 	require.Eventually(t, func() bool {
 		if scoreErr := koth.ScoreCompetitionNow(comp); scoreErr != nil {
+			t.Logf("score competition: %v", scoreErr)
 			return false
 		}
-		team, err = db.Teams.Select(comp.TeamIDs[0])
-		return err == nil && team != nil && team.Score == 13
-	}, 90*time.Second, 10*time.Second)
-	require.NotNil(t, team)
-	assert.Equal(t, 13, team.Score)
+		allPassed := true
+		for _, teamID := range comp.TeamIDs {
+			team, teamErr := db.Teams.Select(teamID)
+			if teamErr != nil || team == nil || team.Score != 13 {
+				if team != nil {
+					t.Logf("team %d score: %d", teamID, team.Score)
+				}
+				allPassed = false
+			}
+		}
+		return allPassed
+	}, 3*time.Minute, 10*time.Second)
 }

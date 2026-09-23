@@ -178,7 +178,7 @@ func bulkGuestAction(ids []int64, start bool) error {
 					err = api.WaitForVirtualMachineAgent(vm, 5*time.Minute, 30*time.Second)
 				}
 			} else {
-				err = api.StopVirtualMachine(vm)
+				err = api.ShutdownVirtualMachine(vm)
 			}
 		} else {
 			ct, ctErr := api.Container(int(id))
