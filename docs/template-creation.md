@@ -320,3 +320,4 @@ Before making the template available to competition authors, create a test clone
 - Linux SSH host keys are unique when SSH is installed.
 - Windows completes unattended OOBE using the local `kothadmin` account and does not request a Microsoft account.
 
+Delete the test clone after validation. Keep the template powered off and treat updates as a rebuild cycle: clone or temporarily convert it to a VM, update it, repeat generalization, validate another clone, and then publish the new template VMID or version.
