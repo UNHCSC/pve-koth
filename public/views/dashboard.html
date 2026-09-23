@@ -39,8 +39,8 @@
         <div class="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
             <div>
                 <p class="text-xs uppercase tracking-[0.3em] text-slate-400">Resource restrictions & information</p>
-                <h2 class="text-2xl font-semibold text-white">Container guardrails · Network capacity</h2>
-                <p class="text-sm text-slate-400">Operators can constrain what container builds get deployed and keep an eye on available /16 networks.</p>
+                <h2 class="text-2xl font-semibold text-white">Guest guardrails · Network capacity</h2>
+                <p class="text-sm text-slate-400">Operators can constrain LXC and full-VM builds and keep an eye on available /16 networks.</p>
             </div>
             <p class="text-xs text-slate-300">
                 Gateway · {{ .Network.Gateway }}<br>
@@ -78,6 +78,18 @@
                                 {{end}}
                             {{else}}
                                 <span class="inline-flex items-center rounded-full border border-white/20 bg-slate-900/60 px-3 py-1 text-xs text-slate-200">Any pool allowed</span>
+                            {{end}}
+                        </div>
+                    </div>
+                    <div>
+                        <p class="text-xs text-slate-400">Allowed VM templates</p>
+                        <div class="mt-2 flex flex-wrap gap-2">
+                            {{if .VMRestrictions.Templates}}
+                                {{range .VMRestrictions.Templates}}
+                                <span class="inline-flex items-center rounded-full border border-white/20 bg-slate-900/60 px-3 py-1 text-xs text-slate-200">{{.Name}} · VM {{.VMID}} · {{.Shell}}</span>
+                                {{end}}
+                            {{else}}
+                                <span class="inline-flex items-center rounded-full border border-white/20 bg-slate-900/60 px-3 py-1 text-xs text-slate-200">No VM templates allowed</span>
                             {{end}}
                         </div>
                     </div>

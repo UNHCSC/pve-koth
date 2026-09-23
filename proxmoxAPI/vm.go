@@ -205,6 +205,30 @@ func (api *ProxmoxAPI) StopVirtualMachine(vm *proxmox.VirtualMachine) error {
 	return waitVMTask(api.bg, task, 5*time.Minute)
 }
 
+func (api *ProxmoxAPI) RebootVirtualMachine(vm *proxmox.VirtualMachine) error {
+	if vm == nil {
+		return fmt.Errorf("VM is nil")
+	}
+	task, err := vm.Reboot(api.bg)
+	if err != nil {
+		return fmt.Errorf("reboot VM %d: %w", vm.VMID, err)
+	}
+	return waitVMTask(api.bg, task, 5*time.Minute)
+}
+
+func (api *ProxmoxAPI) SetVirtualMachineUserPassword(vm *proxmox.VirtualMachine, username, password string) error {
+	if vm == nil {
+		return fmt.Errorf("VM is nil")
+	}
+	if strings.TrimSpace(username) == "" || password == "" {
+		return fmt.Errorf("VM username and password are required")
+	}
+	if err := vm.AgentSetUserPassword(api.bg, password, username); err != nil {
+		return fmt.Errorf("set password for %s on VM %d: %w", username, vm.VMID, err)
+	}
+	return nil
+}
+
 func (api *ProxmoxAPI) DeleteVirtualMachine(vm *proxmox.VirtualMachine) error {
 	if vm == nil {
 		return fmt.Errorf("VM is nil")
@@ -262,9 +286,18 @@ func (api *ProxmoxAPI) ExecuteVirtualMachineCommand(vm *proxmox.VirtualMachine, 
 	if timeout <= 0 {
 		timeout = defaultVMCommandTimeout
 	}
-	pid, err := vm.AgentExec(api.bg, command, input)
-	if err != nil {
-		return VMCommandResult{}, fmt.Errorf("execute command on VM %d: %w", vm.VMID, err)
+	var pid int
+	var err error
+	deadline := time.Now().Add(30 * time.Second)
+	for {
+		pid, err = vm.AgentExec(api.bg, command, input)
+		if err == nil {
+			break
+		}
+		if !strings.Contains(strings.ToLower(err.Error()), "no pid returned") || time.Now().After(deadline) {
+			return VMCommandResult{}, fmt.Errorf("execute command on VM %d: %w", vm.VMID, err)
+		}
+		time.Sleep(2 * time.Second)
 	}
 	status, err := vm.WaitForAgentExecExit(api.bg, pid, int(math.Ceil(timeout.Seconds())))
 	if err != nil {

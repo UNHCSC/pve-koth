@@ -99,6 +99,9 @@ type containerAdminSummary struct {
 	Node        string                       `json:"node"`
 	Status      string                       `json:"status"`
 	ConfigName  string                       `json:"containerConfigName"`
+	GuestKind   db.GuestKind                 `json:"guestKind"`
+	GuestOS     db.GuestOS                   `json:"guestOS"`
+	ScriptShell db.ScriptShell               `json:"scriptShell"`
 	LastUpdated time.Time                    `json:"lastUpdated"`
 	Team        *containerTeamSummary        `json:"team,omitempty"`
 	Competition *containerCompetitionSummary `json:"competition,omitempty"`
@@ -898,6 +901,9 @@ func apiListContainers(c *fiber.Ctx) (err error) {
 			Status:      status,
 			Node:        rt.Node,
 			ConfigName:  record.ConfigName,
+			GuestKind:   record.GuestKind,
+			GuestOS:     record.GuestOS,
+			ScriptShell: record.ScriptShell,
 			LastUpdated: record.LastUpdated,
 		}
 
@@ -1509,7 +1515,6 @@ func validateCompetitionTemplates(req *db.CreateCompetitionRequest) error {
 		var maxDiskMB = restrictions.MaxDiskMB
 		var maxMemoryMB = restrictions.MaxMemoryMB
 		var maxCPUCores = restrictions.MaxCPUCores
-		var qemuUnsupported bool
 		switch spec.Kind {
 		case db.GuestKindLXC:
 			if len(restrictions.AllowedLXCTemplates) > 0 && !containsString(restrictions.AllowedLXCTemplates, spec.TemplatePath) {
@@ -1524,7 +1529,6 @@ func validateCompetitionTemplates(req *db.CreateCompetitionRequest) error {
 			maxDiskMB = config.Config.VMRestrictions.MaxDiskMB
 			maxMemoryMB = config.Config.VMRestrictions.MaxMemoryMB
 			maxCPUCores = config.Config.VMRestrictions.MaxCPUCores
-			qemuUnsupported = true
 		}
 		if len(allowedStoragePools) > 0 && !containsString(allowedStoragePools, spec.StoragePool) {
 			return fmt.Errorf("template %q uses disallowed storage pool %q", name, spec.StoragePool)
@@ -1541,9 +1545,6 @@ func validateCompetitionTemplates(req *db.CreateCompetitionRequest) error {
 		}
 		if maxCPUCores > 0 && spec.Cores > maxCPUCores {
 			return fmt.Errorf("template %q requests %d cores which exceeds maxCPUCores (%d)", name, spec.Cores, maxCPUCores)
-		}
-		if qemuUnsupported {
-			return fmt.Errorf("template %q uses QEMU, but full-VM competition orchestration is not implemented yet", name)
 		}
 	}
 

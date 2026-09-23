@@ -156,8 +156,7 @@ func TestNormalizeGuestConfigurationWindowsQEMU(t *testing.T) {
 	assert.Empty(t, request.ContainerSpecsTemplates, "QEMU guests must not be projected into the LXC provisioner")
 
 	_, err := ensureTemplateLookup(request)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "QEMU provisioning is not implemented yet")
+	require.NoError(t, err)
 }
 
 func TestNormalizeGuestConfigurationRejectsInvalidConfigurations(t *testing.T) {

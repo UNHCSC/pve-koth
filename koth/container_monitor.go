@@ -110,34 +110,32 @@ func ContainerRuntimeSnapshot(ids []int64) (map[int64]ContainerRuntime, error) {
 		return nil, fmt.Errorf("proxmox API is not initialized")
 	}
 
-	intIDs, err := convertContainerIDs(normalized)
+	records, err := loadContainerRecords(normalized)
 	if err != nil {
 		return nil, err
 	}
-
-	containers, err := api.GetContainers(intIDs)
-	if err != nil {
-		return nil, err
-	}
-
-	for _, ct := range containers {
-		var id = int64(ct.VMID)
-		var name = strings.TrimSpace(ct.Name)
+	for _, id := range normalized {
+		record := records[id]
+		if record != nil && record.GuestKind == db.GuestKindQEMU {
+			vm, vmErr := api.VirtualMachine(int(id))
+			if vmErr == nil {
+				name := strings.TrimSpace(vm.Name)
+				if name == "" && vm.VirtualMachineConfig != nil {
+					name = strings.TrimSpace(vm.VirtualMachineConfig.Name)
+				}
+				result[id] = ContainerRuntime{ID: id, Name: name, Status: strings.ToLower(strings.TrimSpace(vm.Status)), Node: strings.TrimSpace(vm.Node)}
+			}
+			continue
+		}
+		ct, ctErr := api.Container(int(id))
+		if ctErr != nil {
+			continue
+		}
+		name := strings.TrimSpace(ct.Name)
 		if name == "" && ct.ContainerConfig != nil {
 			name = strings.TrimSpace(ct.ContainerConfig.Hostname)
 		}
-
-		var status = strings.ToLower(strings.TrimSpace(ct.Status))
-		if status == "" {
-			status = "unknown"
-		}
-
-		result[id] = ContainerRuntime{
-			ID:     id,
-			Name:   name,
-			Status: status,
-			Node:   strings.TrimSpace(ct.Node),
-		}
+		result[id] = ContainerRuntime{ID: id, Name: name, Status: strings.ToLower(strings.TrimSpace(ct.Status)), Node: strings.TrimSpace(ct.Node)}
 	}
 
 	for _, id := range normalized {
@@ -151,12 +149,53 @@ func ContainerRuntimeSnapshot(ids []int64) (map[int64]ContainerRuntime, error) {
 
 // BulkStartContainers powers on the provided CTIDs using the Proxmox bulk APIs.
 func BulkStartContainers(ids []int64) error {
-	return bulkContainerAction(ids, api.BulkStart)
+	return bulkGuestAction(ids, true)
 }
 
 // BulkStopContainers powers off the provided CTIDs using the Proxmox bulk APIs.
 func BulkStopContainers(ids []int64) error {
-	return bulkContainerAction(ids, api.BulkStop)
+	return bulkGuestAction(ids, false)
+}
+
+func bulkGuestAction(ids []int64, start bool) error {
+	normalized := normalizeContainerIDs(ids)
+	if len(normalized) == 0 {
+		return fmt.Errorf("no container IDs supplied")
+	}
+	for _, id := range normalized {
+		record, err := db.Containers.Select(id)
+		if err != nil || record == nil {
+			return fmt.Errorf("load guest %d: %w", id, err)
+		}
+		if record.GuestKind == db.GuestKindQEMU {
+			vm, vmErr := api.VirtualMachine(int(id))
+			if vmErr != nil {
+				return vmErr
+			}
+			if start {
+				err = api.StartVirtualMachine(vm)
+				if err == nil {
+					err = api.WaitForVirtualMachineAgent(vm, 5*time.Minute, 30*time.Second)
+				}
+			} else {
+				err = api.StopVirtualMachine(vm)
+			}
+		} else {
+			ct, ctErr := api.Container(int(id))
+			if ctErr != nil {
+				return ctErr
+			}
+			if start {
+				err = api.StartContainer(ct)
+			} else {
+				err = api.StopContainer(ct)
+			}
+		}
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func bulkContainerAction(ids []int64, action func(ids []int) error) error {

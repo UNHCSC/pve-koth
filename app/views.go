@@ -111,7 +111,7 @@ func showDashboard(c *fiber.Ctx) (err error) {
 		"User":         displayName,
 		"LoggedIn":     user != nil,
 		"CanManage":    canManage,
-		"ResourceInfo": fiber.Map{"Restrictions": config.Config.ContainerRestrictions, "Network": buildNetworkResourceStats(comps)},
+		"ResourceInfo": fiber.Map{"Restrictions": config.Config.ContainerRestrictions, "VMRestrictions": config.Config.VMRestrictions, "Network": buildNetworkResourceStats(comps)},
 	}), "layout")
 }
 

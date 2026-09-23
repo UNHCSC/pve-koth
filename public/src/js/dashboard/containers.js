@@ -39,7 +39,7 @@ export function createContainerManager({ list, containerStates }) {
         <summary class="flex flex-col gap-1 px-4 py-3 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400">
             <div class="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
                 <div>
-                    <p class="text-sm font-semibold text-white">Container control</p>
+                    <p class="text-sm font-semibold text-white">Guest control</p>
                     <p class="text-xs text-slate-400">Manage power state for ${escapeHTML(comp.name)}</p>
                 </div>
                 <span class="chevron-icon text-white/80" aria-hidden="true">
@@ -73,7 +73,7 @@ export function createContainerManager({ list, containerStates }) {
                 <thead>
                     <tr class="text-xs uppercase tracking-[0.2em] text-slate-400 border-b border-white/10">
                         <th class="py-2 pr-3 text-left w-10"></th>
-                        <th class="py-2 pr-3 text-left">Container</th>
+                        <th class="py-2 pr-3 text-left">Guest</th>
                         <th class="py-2 pr-3 text-left">Network</th>
                         <th class="py-2 pr-3 text-left">Team</th>
                         <th class="py-2 pr-3 text-left">Power</th>
@@ -190,7 +190,11 @@ export function createContainerManager({ list, containerStates }) {
                 const containerName = entry.name || `CT-${id}`;
                 const label = escapeHTML(containerName);
                 const configName = entry.containerConfigName ? escapeHTML(entry.containerConfigName) : "";
-                const redeployDisabled = state.loading;
+                const guestKind = String(entry.guestKind || "lxc").toUpperCase();
+                const guestOS = String(entry.guestOS || "linux");
+                const guestMeta = `${escapeHTML(guestKind)} · ${escapeHTML(guestOS)}`;
+                const qemuGuest = String(entry.guestKind || "lxc").toLowerCase() === "qemu";
+                const redeployDisabled = state.loading || qemuGuest;
 
                 return `<tr class="border-b border-white/5 last:border-b-0">
                     <td class="py-3 pr-3 align-top">
@@ -198,6 +202,7 @@ export function createContainerManager({ list, containerStates }) {
                     </td>
                 <td class="py-3 pr-3 align-top">
                     <p class="font-semibold text-white">${label} <span class="text-slate-400 text-xs">(${id})</span></p>
+                    <p class="text-xs text-slate-400">${guestMeta}</p>
                 </td>
                 <td class="py-3 pr-3 align-top">
                     <p class="font-mono text-slate-100">${ip}</p>
@@ -213,7 +218,7 @@ export function createContainerManager({ list, containerStates }) {
                     <td class="py-3 pr-3 align-top text-slate-300">${formatRelativeTime(entry.lastUpdated)}</td>
                     <td class="py-3 align-top">
                         <button type="button" data-container-redeploy data-container-id="${id}" data-container-label="${label}" class="text-xs font-semibold text-blue-200 hover:text-white disabled:opacity-40" ${redeployDisabled ? "disabled" : ""}>
-                            Redeploy container
+                            ${qemuGuest ? "VM redeploy unavailable" : "Redeploy guest"}
                         </button>
                         ${configName ? `<p class="text-[10px] uppercase tracking-[0.2em] text-slate-400 mt-1">Config: ${configName}</p>` : "<p class=\"text-[10px] uppercase tracking-[0.2em] text-slate-500 mt-1\">Config: unspecified</p>"}
                     </td>

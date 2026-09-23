@@ -77,21 +77,30 @@ func stopAndDeleteContainers(comp *db.Competition, log ProgressLogger) error {
 		return nil
 	}
 
-	var ids []int
 	for _, id := range comp.ContainerIDs {
-		ids = append(ids, int(id))
-	}
-
-	log.Status("Stopping containers...")
-	if err := api.BulkCTActionWithRetries(api.BulkStop, ids, 1+len(ids)/4); err != nil {
-		log.Errorf("Failed to stop containers: %v\n", err)
-		return err
-	}
-
-	log.Status("Deleting containers...")
-	if err := api.BulkCTActionWithRetries(api.BulkDelete, ids, 1+len(ids)/4); err != nil {
-		log.Errorf("Failed to delete containers: %v\n", err)
-		return err
+		record, err := db.Containers.Select(id)
+		if err != nil {
+			return err
+		}
+		if record != nil && record.GuestKind == db.GuestKindQEMU {
+			vm, vmErr := api.VirtualMachine(int(id))
+			if vmErr != nil {
+				return vmErr
+			}
+			_ = api.StopVirtualMachine(vm)
+			if err = api.DeleteVirtualMachine(vm); err != nil {
+				return err
+			}
+		} else {
+			ct, ctErr := api.Container(int(id))
+			if ctErr != nil {
+				return ctErr
+			}
+			_ = api.StopContainer(ct)
+			if err = api.DeleteContainer(ct); err != nil {
+				return err
+			}
+		}
 	}
 
 	return nil

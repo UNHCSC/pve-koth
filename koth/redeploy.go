@@ -55,6 +55,9 @@ func redeployContainer(log ProgressLogger, id int64, startAfter, enableAdvancedL
 	} else if record == nil {
 		return fmt.Errorf("container %d not found", id)
 	}
+	if record.GuestKind == db.GuestKindQEMU {
+		return fmt.Errorf("QEMU guest redeploy is not implemented yet")
+	}
 
 	var comp *db.Competition
 	if comp, err = findCompetitionForContainer(id); err != nil {
@@ -65,8 +68,8 @@ func redeployContainer(log ProgressLogger, id int64, startAfter, enableAdvancedL
 	if req, err = loadCompetitionDefinition(comp); err != nil {
 		return fmt.Errorf("load competition definition: %w", err)
 	}
-	if len(req.TeamContainerConfigs) == 0 {
-		return fmt.Errorf("competition %s has no container configurations", comp.SystemID)
+	if len(req.TeamGuestConfigs) == 0 {
+		return fmt.Errorf("competition %s has no guest configurations", comp.SystemID)
 	}
 
 	var team *db.Team
@@ -75,9 +78,9 @@ func redeployContainer(log ProgressLogger, id int64, startAfter, enableAdvancedL
 		return err
 	}
 
-	var cfg db.TeamContainerConfig
+	var cfg db.TeamGuestConfig
 	var cfgIndex int
-	if cfg, cfgIndex, err = resolveContainerConfig(req.TeamContainerConfigs, record); err != nil {
+	if cfg, cfgIndex, err = resolveGuestConfig(req.TeamGuestConfigs, record); err != nil {
 		return err
 	}
 
@@ -104,18 +107,15 @@ func redeployContainer(log ProgressLogger, id int64, startAfter, enableAdvancedL
 	}
 
 	var network *teamNetwork
-	if network, err = buildTeamNetwork(compNet, teamIndex, req.TeamContainerConfigs); err != nil {
+	if network, err = buildTeamNetwork(compNet, teamIndex, req.TeamGuestConfigs); err != nil {
 		return fmt.Errorf("build team network: %w", err)
 	}
 
-	var templateSpec db.ContainerSpecTemplate
-	if templateSpec, err = ResolveContainerSpecTemplate(req.TemplateLookup, cfg.ContainerSpecsTemplate); err != nil {
+	var guestSpec db.GuestSpecTemplate
+	if guestSpec, err = ResolveGuestSpecTemplate(req.GuestTemplateLookup, cfg.GuestSpecsTemplate); err != nil {
 		return fmt.Errorf("resolve template for %s: %w", cfg.Name, err)
 	}
-	guestSpec, ok := req.GuestTemplateLookup[strings.TrimSpace(cfg.ContainerSpecsTemplate)]
-	if !ok {
-		return fmt.Errorf("resolve normalized guest template for %s", cfg.Name)
-	}
+	hostname := fmt.Sprintf("%s-team-%d-%s", comp.ContainerRestrictions.HostnamePrefix, teamIndex+1, cfg.Name)
 
 	plan := &guestPlan{
 		team:          team,
@@ -127,17 +127,21 @@ func redeployContainer(log ProgressLogger, id int64, startAfter, enableAdvancedL
 		guestKind:     guestSpec.Kind,
 		guestOS:       guestSpec.OS,
 		scriptShell:   guestSpec.Shell,
-		templateRef:   strings.TrimSpace(cfg.ContainerSpecsTemplate),
+		templateRef:   strings.TrimSpace(cfg.GuestSpecsTemplate),
 		templateVMID:  guestSpec.TemplateVMID,
+		hostname:      hostname,
+		username:      guestSpec.Username,
+		password:      guestSpec.Password,
+		storagePool:   guestSpec.StoragePool,
 		options: &proxmoxAPI.ContainerCreateOptions{
-			TemplatePath:     templateSpec.TemplatePath,
-			StoragePool:      templateSpec.StoragePool,
-			Hostname:         fmt.Sprintf("%s-team-%d-%s", comp.ContainerRestrictions.HostnamePrefix, teamIndex+1, cfg.Name),
-			RootPassword:     templateSpec.RootPassword,
+			TemplatePath:     guestSpec.TemplatePath,
+			StoragePool:      guestSpec.StoragePool,
+			Hostname:         hostname,
+			RootPassword:     guestSpec.Password,
 			RootSSHPublicKey: publicKey,
-			StorageSizeGB:    templateSpec.StorageSizeGB,
-			MemoryMB:         templateSpec.MemoryMB,
-			Cores:            templateSpec.Cores,
+			StorageSizeGB:    guestSpec.DiskSizeGB,
+			MemoryMB:         guestSpec.MemoryMB,
+			Cores:            guestSpec.Cores,
 			GatewayIPv4:      config.Config.Network.ContainerGateway,
 			IPv4Address:      record.IPAddress,
 			CIDRBlock:        config.Config.Network.ContainerCIDR,
@@ -193,7 +197,7 @@ func redeployContainer(log ProgressLogger, id int64, startAfter, enableAdvancedL
 		return fmt.Errorf("container %d console not ready: %w", record.PVEID, err)
 	}
 
-	if err = runSetupScripts(log, api, newContainer, comp, plan, network, publicFolderURL, artifactBaseURL, enableAdvancedLogging); err != nil {
+	if err = runSetupScripts(log, api, newContainer, nil, comp, plan, network, publicFolderURL, artifactBaseURL, enableAdvancedLogging); err != nil {
 		return err
 	}
 
@@ -341,6 +345,28 @@ func resolveContainerConfig(configs []db.TeamContainerConfig, record *db.Contain
 	}
 
 	return db.TeamContainerConfig{}, 0, fmt.Errorf("unable to match container %d to a config", record.PVEID)
+}
+
+func resolveGuestConfig(configs []db.TeamGuestConfig, record *db.Container) (db.TeamGuestConfig, int, error) {
+	if len(configs) == 0 {
+		return db.TeamGuestConfig{}, 0, fmt.Errorf("no guest configs available")
+	}
+	name := strings.TrimSpace(record.ConfigName)
+	for idx, cfg := range configs {
+		if name != "" && strings.EqualFold(strings.TrimSpace(cfg.Name), name) {
+			return cfg, idx, nil
+		}
+	}
+	if record.IPAddress != "" {
+		if offset := lastOctet(record.IPAddress); offset >= 0 {
+			for idx, cfg := range configs {
+				if cfg.LastOctetValue == offset {
+					return cfg, idx, nil
+				}
+			}
+		}
+	}
+	return db.TeamGuestConfig{}, 0, fmt.Errorf("unable to match guest %d to a config", record.PVEID)
 }
 
 func lastOctet(address string) int {

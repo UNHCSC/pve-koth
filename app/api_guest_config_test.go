@@ -35,7 +35,7 @@ func TestValidateCompetitionTemplatesAcceptsLegacyConfiguration(t *testing.T) {
 	assert.Equal(t, db.GuestKindLXC, request.GuestSpecTemplates["ubuntu"].Kind)
 }
 
-func TestValidateCompetitionTemplatesRejectsQEMUUntilProviderExists(t *testing.T) {
+func TestValidateCompetitionTemplatesAcceptsAllowedQEMU(t *testing.T) {
 	original := config.Config.ContainerRestrictions
 	originalVM := config.Config.VMRestrictions
 	config.Config.ContainerRestrictions = config.ContainerRestrictionsConfig{}
@@ -71,7 +71,6 @@ func TestValidateCompetitionTemplatesRejectsQEMUUntilProviderExists(t *testing.T
 		},
 	}
 
-	err := validateCompetitionTemplates(request)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "full-VM competition orchestration is not implemented yet")
+	require.NoError(t, validateCompetitionTemplates(request))
+	assert.Equal(t, 9001, request.GuestSpecTemplates["windows"].TemplateVMID)
 }

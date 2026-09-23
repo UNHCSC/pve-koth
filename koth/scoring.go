@@ -15,6 +15,7 @@ import (
 	"github.com/UNHCSC/pve-koth/db"
 	"github.com/UNHCSC/pve-koth/proxmoxAPI"
 	"github.com/UNHCSC/pve-koth/ssh"
+	"github.com/luthermonson/go-proxmox"
 	"github.com/z46-dev/go-logger"
 	"github.com/z46-dev/gomysql"
 )
@@ -88,6 +89,10 @@ func runScoringPass() {
 	wg.Wait()
 }
 
+func ScoreCompetitionNow(comp *db.Competition) error {
+	return scoreCompetition(comp)
+}
+
 func loadCompetitionDefinition(comp *db.Competition) (*db.CreateCompetitionRequest, error) {
 	if comp == nil {
 		return nil, fmt.Errorf("competition is nil")
@@ -143,7 +148,7 @@ func scoreCompetition(comp *db.Competition) (err error) {
 		return fmt.Errorf("%s: %w", logPrefix, err)
 	}
 
-	if len(req.TeamContainerConfigs) == 0 || len(comp.TeamIDs) == 0 {
+	if len(req.TeamGuestConfigs) == 0 || len(comp.TeamIDs) == 0 {
 		return nil
 	}
 
@@ -173,13 +178,13 @@ func scoreCompetition(comp *db.Competition) (err error) {
 				return
 			}
 
-			network, netErr := buildTeamNetwork(compNet, teamIndex, req.TeamContainerConfigs)
+			network, netErr := buildTeamNetwork(compNet, teamIndex, req.TeamGuestConfigs)
 			if netErr != nil {
 				scoringLog.Errorf("failed to build network for %s team %d: %v\n", comp.SystemID, team.ID, netErr)
 				return
 			}
 
-			teamScore, containerResults, teamErr := scoreTeam(comp, team, teamIndex, req.TeamContainerConfigs, network, publicFolderURL, artifactBaseURL, req)
+			teamScore, containerResults, teamErr := scoreTeam(comp, team, teamIndex, req.TeamGuestConfigs, network, publicFolderURL, artifactBaseURL, req)
 			if teamErr != nil {
 				scoringLog.Errorf("team %s scoring had errors: %v\n", team.Name, teamErr)
 			}
@@ -199,7 +204,7 @@ func scoreCompetition(comp *db.Competition) (err error) {
 	return nil
 }
 
-func buildTeamNetwork(compSubnet *net.IPNet, teamIndex int, configs []db.TeamContainerConfig) (*teamNetwork, error) {
+func buildTeamNetwork(compSubnet *net.IPNet, teamIndex int, configs []db.TeamGuestConfig) (*teamNetwork, error) {
 	network := &teamNetwork{
 		ipsByName: make(map[string]string),
 		ipOrder:   make([]string, 0),
@@ -224,7 +229,7 @@ func buildTeamNetwork(compSubnet *net.IPNet, teamIndex int, configs []db.TeamCon
 	return network, nil
 }
 
-func scoreTeam(comp *db.Competition, team *db.Team, teamIndex int, configs []db.TeamContainerConfig, network *teamNetwork, publicFolderURL, artifactBaseURL string, req *db.CreateCompetitionRequest) (int, []containerScoreResult, error) {
+func scoreTeam(comp *db.Competition, team *db.Team, teamIndex int, configs []db.TeamGuestConfig, network *teamNetwork, publicFolderURL, artifactBaseURL string, req *db.CreateCompetitionRequest) (int, []containerScoreResult, error) {
 	if team == nil || len(configs) == 0 {
 		return 0, nil, nil
 	}
@@ -236,59 +241,55 @@ func scoreTeam(comp *db.Competition, team *db.Team, teamIndex int, configs []db.
 		results []containerScoreResult
 	)
 
-	for order, containerCfg := range configs {
-		sanitized := sanitizeContainerName(containerCfg.Name)
+	for order, guestCfg := range configs {
+		sanitized := sanitizeContainerName(guestCfg.Name)
 		ipAddress := network.ipsByName[sanitized]
 		if ipAddress == "" {
 			continue
 		}
 
-		templateSpec, specErr := ResolveContainerSpecTemplate(req.TemplateLookup, containerCfg.ContainerSpecsTemplate)
+		guestSpec, specErr := ResolveGuestSpecTemplate(req.GuestTemplateLookup, guestCfg.GuestSpecsTemplate)
 		if specErr != nil {
-			scoringLog.Errorf("failed to resolve template %s for %s: %v\n", containerCfg.ContainerSpecsTemplate, containerCfg.Name, specErr)
+			scoringLog.Errorf("failed to resolve template %s for %s: %v\n", guestCfg.GuestSpecsTemplate, guestCfg.Name, specErr)
 			continue
 		}
-		guestSpec, ok := req.GuestTemplateLookup[strings.TrimSpace(containerCfg.ContainerSpecsTemplate)]
-		if !ok {
-			scoringLog.Errorf("failed to resolve normalized guest template %s for %s\n", containerCfg.ContainerSpecsTemplate, containerCfg.Name)
-			continue
-		}
+		hostname := fmt.Sprintf("%s-team-%d-%s", comp.ContainerRestrictions.HostnamePrefix, teamIndex+1, guestCfg.Name)
 
 		plan := &guestPlan{
 			team:          team,
-			name:          containerCfg.Name,
+			name:          guestCfg.Name,
 			sanitizedName: sanitized,
 			order:         order,
 			ipAddress:     ipAddress,
 			guestKind:     guestSpec.Kind,
 			guestOS:       guestSpec.OS,
 			scriptShell:   guestSpec.Shell,
-			templateRef:   strings.TrimSpace(containerCfg.ContainerSpecsTemplate),
+			templateRef:   strings.TrimSpace(guestCfg.GuestSpecsTemplate),
 			templateVMID:  guestSpec.TemplateVMID,
-			options: &proxmoxAPI.ContainerCreateOptions{
-				Hostname:     fmt.Sprintf("%s-team-%d-%s", comp.ContainerRestrictions.HostnamePrefix, teamIndex+1, containerCfg.Name),
-				RootPassword: templateSpec.RootPassword,
-			},
+			hostname:      hostname,
+			username:      guestSpec.Username,
+			password:      guestSpec.Password,
+			storagePool:   guestSpec.StoragePool,
 		}
 
-		status, statusErr := containerStatusForTeam(team.ID, containerCfg.Name)
+		status, statusErr := containerStatusForTeam(team.ID, guestCfg.Name)
 		if statusErr != nil {
-			scoringLog.Errorf("failed to fetch status for %s (%s): %v\n", plan.options.Hostname, containerCfg.Name, statusErr)
+			scoringLog.Errorf("failed to fetch status for %s (%s): %v\n", plan.hostname, guestCfg.Name, statusErr)
 		}
 		if strings.EqualFold(status, "redeploying") {
-			scoringLog.Statusf("Skipping scoring for %s while redeploying\n", plan.options.Hostname)
+			scoringLog.Statusf("Skipping scoring for %s while redeploying\n", plan.hostname)
 			continue
 		}
 
 		wg.Add(1)
-		go func(cfg db.TeamContainerConfig, plan *guestPlan) {
+		go func(cfg db.TeamGuestConfig, plan *guestPlan) {
 			defer wg.Done()
 			score, detail := scoreContainer(comp, plan, network, publicFolderURL, artifactBaseURL, cfg.ScoringScript, cfg.ScoringSchema)
 			mu.Lock()
 			total += score
 			results = append(results, detail)
 			mu.Unlock()
-		}(containerCfg, plan)
+		}(guestCfg, plan)
 	}
 
 	wg.Wait()
@@ -317,7 +318,7 @@ func scoreContainer(comp *db.Competition, plan *guestPlan, network *teamNetwork,
 			continue
 		}
 		if _, exists := schemaIndex[id]; exists {
-			scoringLog.Statusf("duplicate scoring check %s defined for %s; ignoring duplicate entry", id, plan.options.Hostname)
+			scoringLog.Statusf("duplicate scoring check %s defined for %s; ignoring duplicate entry", id, plan.hostname)
 			continue
 		}
 
@@ -350,17 +351,11 @@ func scoreContainer(comp *db.Competition, plan *guestPlan, network *teamNetwork,
 
 	record, recErr := containerRecordForTeam(plan.team.ID, plan.name)
 	if recErr != nil {
-		scoringLog.Errorf("failed to load container record for %s: %v\n", plan.options.Hostname, recErr)
+		scoringLog.Errorf("failed to load guest record for %s: %v\n", plan.hostname, recErr)
 		return 0, result
 	}
 	if record == nil {
-		scoringLog.Statusf("Container %s not provisioned; treating checks as failed\n", plan.options.Hostname)
-		return 0, result
-	}
-
-	ct, ctErr := api.Container(int(record.PVEID))
-	if ctErr != nil {
-		scoringLog.Errorf("failed to load container %s (CTID %d): %v\n", plan.options.Hostname, record.PVEID, ctErr)
+		scoringLog.Statusf("Guest %s not provisioned; treating checks as failed\n", plan.hostname)
 		return 0, result
 	}
 
@@ -371,15 +366,29 @@ func scoreContainer(comp *db.Competition, plan *guestPlan, network *teamNetwork,
 		}
 
 		scriptURL := buildArtifactFileURL(artifactBaseURL, scriptPath)
-		command := ssh.LoadAndRunScript(scriptURL, token, envs)
-
-		stdout, stderr, exitCode, execErr := api.RawExecuteWithRetries(ct, "root", plan.options.RootPassword, command, 2)
+		var stdout, stderr string
+		var exitCode int
+		var execErr error
+		if record.GuestKind == db.GuestKindQEMU {
+			var vm *proxmox.VirtualMachine
+			if vm, execErr = api.VirtualMachine(int(record.PVEID)); execErr == nil {
+				var commandResult proxmoxAPI.VMCommandResult
+				commandResult, execErr = api.ExecuteVirtualMachineCommand(vm, powershellCommand(powershellScriptInvocation(scriptURL, token, envs)), "", 5*time.Minute)
+				stdout, stderr, exitCode = commandResult.Stdout, commandResult.Stderr, commandResult.ExitCode
+			}
+		} else {
+			var ct *proxmox.Container
+			if ct, execErr = api.Container(int(record.PVEID)); execErr == nil {
+				command := ssh.LoadAndRunScript(scriptURL, token, envs)
+				stdout, stderr, exitCode, execErr = api.RawExecuteWithRetries(ct, "root", plan.password, command, 2)
+			}
+		}
 		if execErr != nil {
-			scoringLog.Errorf("failed to execute scoring script %s on %s: %v\n", scriptPath, plan.options.Hostname, execErr)
+			scoringLog.Errorf("failed to execute scoring script %s on %s: %v\n", scriptPath, plan.hostname, execErr)
 		} else if exitCode != 0 {
-			scoringLog.Errorf("scoring script %s exited %d on %s\nStdout:\n%s\nStderr:\n%s\n", scriptPath, exitCode, plan.options.Hostname, summarizeScriptOutput(stdout), summarizeScriptOutput(stderr))
+			scoringLog.Errorf("scoring script %s exited %d on %s\nStdout:\n%s\nStderr:\n%s\n", scriptPath, exitCode, plan.hostname, summarizeScriptOutput(stdout), summarizeScriptOutput(stderr))
 		} else if payload, parseErr := parseCheckPayload([]byte(stdout)); parseErr != nil {
-			scoringLog.Errorf("invalid scoring payload from %s (%s): %v\nStdout:\n%s\nStderr:\n%s\n", plan.options.Hostname, scriptPath, parseErr, summarizeScriptOutput(stdout), summarizeScriptOutput(stderr))
+			scoringLog.Errorf("invalid scoring payload from %s (%s): %v\nStdout:\n%s\nStderr:\n%s\n", plan.hostname, scriptPath, parseErr, summarizeScriptOutput(stdout), summarizeScriptOutput(stderr))
 		} else {
 			for rawID, passed := range payload {
 				id := strings.TrimSpace(rawID)
@@ -388,11 +397,11 @@ func scoreContainer(comp *db.Competition, plan *guestPlan, network *teamNetwork,
 				}
 				index, known := schemaIndex[id]
 				if !known {
-					scoringLog.Statusf("scoring script %s reported unknown check %s on %s; ignoring\n", scriptPath, id, plan.options.Hostname)
+					scoringLog.Statusf("scoring script %s reported unknown check %s on %s; ignoring\n", scriptPath, id, plan.hostname)
 					continue
 				}
 				if reported[id] {
-					scoringLog.Statusf("scoring script %s reported duplicate result for check %s on %s; keeping first result\n", scriptPath, id, plan.options.Hostname)
+					scoringLog.Statusf("scoring script %s reported duplicate result for check %s on %s; keeping first result\n", scriptPath, id, plan.hostname)
 					continue
 				}
 				reported[id] = true
