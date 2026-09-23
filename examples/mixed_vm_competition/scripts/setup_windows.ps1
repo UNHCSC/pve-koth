@@ -40,7 +40,11 @@ if (-not (Get-Service -Name "sshd" -ErrorAction SilentlyContinue)) {
         }
     }
 
-    & (Join-Path $sshInstall "install-sshd.ps1")
+    & powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File (Join-Path $sshInstall "install-sshd.ps1")
+    $installExitCode = $LASTEXITCODE
+    if ($installExitCode -ne 0 -and -not (Get-Service -Name "sshd" -ErrorAction SilentlyContinue)) {
+        throw "OpenSSH service installation failed with exit code $installExitCode"
+    }
     Remove-Item -LiteralPath $archive, $extract -Recurse -Force -ErrorAction SilentlyContinue
 }
 
