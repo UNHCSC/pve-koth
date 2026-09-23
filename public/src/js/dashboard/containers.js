@@ -193,8 +193,7 @@ export function createContainerManager({ list, containerStates }) {
                 const guestKind = String(entry.guestKind || "lxc").toUpperCase();
                 const guestOS = String(entry.guestOS || "linux");
                 const guestMeta = `${escapeHTML(guestKind)} · ${escapeHTML(guestOS)}`;
-                const qemuGuest = String(entry.guestKind || "lxc").toLowerCase() === "qemu";
-                const redeployDisabled = state.loading || qemuGuest;
+                const redeployDisabled = state.loading;
 
                 return `<tr class="border-b border-white/5 last:border-b-0">
                     <td class="py-3 pr-3 align-top">
@@ -218,7 +217,7 @@ export function createContainerManager({ list, containerStates }) {
                     <td class="py-3 pr-3 align-top text-slate-300">${formatRelativeTime(entry.lastUpdated)}</td>
                     <td class="py-3 align-top">
                         <button type="button" data-container-redeploy data-container-id="${id}" data-container-label="${label}" class="text-xs font-semibold text-blue-200 hover:text-white disabled:opacity-40" ${redeployDisabled ? "disabled" : ""}>
-                            ${qemuGuest ? "VM redeploy unavailable" : "Redeploy guest"}
+                            Redeploy guest
                         </button>
                         ${configName ? `<p class="text-[10px] uppercase tracking-[0.2em] text-slate-400 mt-1">Config: ${configName}</p>` : "<p class=\"text-[10px] uppercase tracking-[0.2em] text-slate-500 mt-1\">Config: unspecified</p>"}
                     </td>

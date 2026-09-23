@@ -14,7 +14,7 @@ import (
 	"github.com/luthermonson/go-proxmox"
 )
 
-// RedeployContainers deletes and rebuilds the requested containers using the original competition plan.
+// RedeployContainers deletes and rebuilds the requested guests using the original competition plan.
 func RedeployContainers(ids []int64) error {
 	return RedeployContainersWithLogger(ids, containerLog, false, false)
 }
@@ -38,11 +38,11 @@ func RedeployContainersWithLogger(ids []int64, log ProgressLogger, startAfter, e
 	}
 
 	for _, id := range normalized {
-		localLog.Statusf("Redeploying container %d...", id)
+		localLog.Statusf("Redeploying guest %d...", id)
 		if err := redeployContainer(localLog, id, startAfter, enableAdvancedLogging); err != nil {
-			return fmt.Errorf("container %d: %w", id, err)
+			return fmt.Errorf("guest %d: %w", id, err)
 		}
-		localLog.Successf("Container %d redeployed successfully.", id)
+		localLog.Successf("Guest %d redeployed successfully.", id)
 	}
 
 	return nil
@@ -55,10 +55,6 @@ func redeployContainer(log ProgressLogger, id int64, startAfter, enableAdvancedL
 	} else if record == nil {
 		return fmt.Errorf("container %d not found", id)
 	}
-	if record.GuestKind == db.GuestKindQEMU {
-		return fmt.Errorf("QEMU guest redeploy is not implemented yet")
-	}
-
 	var comp *db.Competition
 	if comp, err = findCompetitionForContainer(id); err != nil {
 		return err
@@ -84,15 +80,6 @@ func redeployContainer(log ProgressLogger, id int64, startAfter, enableAdvancedL
 		return err
 	}
 
-	var publicKeyData []byte
-	if comp.SSHPubKeyPath == "" {
-		return fmt.Errorf("competition %s missing SSH public key", comp.SystemID)
-	}
-	if publicKeyData, err = os.ReadFile(comp.SSHPubKeyPath); err != nil {
-		return fmt.Errorf("read ssh public key: %w", err)
-	}
-	var publicKey = strings.TrimSpace(string(publicKeyData))
-
 	if strings.TrimSpace(record.IPAddress) == "" {
 		return fmt.Errorf("container %d missing recorded IP address", record.PVEID)
 	}
@@ -116,6 +103,9 @@ func redeployContainer(log ProgressLogger, id int64, startAfter, enableAdvancedL
 		return fmt.Errorf("resolve template for %s: %w", cfg.Name, err)
 	}
 	hostname := fmt.Sprintf("%s-team-%d-%s", comp.ContainerRestrictions.HostnamePrefix, teamIndex+1, cfg.Name)
+	if guestSpec.Kind == db.GuestKindQEMU && guestSpec.OS == db.GuestOSWindows {
+		hostname = windowsComputerName(teamIndex+1, cfg.Name)
+	}
 
 	plan := &guestPlan{
 		team:          team,
@@ -133,12 +123,22 @@ func redeployContainer(log ProgressLogger, id int64, startAfter, enableAdvancedL
 		username:      guestSpec.Username,
 		password:      guestSpec.Password,
 		storagePool:   guestSpec.StoragePool,
-		options: &proxmoxAPI.ContainerCreateOptions{
+	}
+	switch guestSpec.Kind {
+	case db.GuestKindLXC:
+		if comp.SSHPubKeyPath == "" {
+			return fmt.Errorf("competition %s missing SSH public key", comp.SystemID)
+		}
+		publicKeyData, readErr := os.ReadFile(comp.SSHPubKeyPath)
+		if readErr != nil {
+			return fmt.Errorf("read ssh public key: %w", readErr)
+		}
+		plan.options = &proxmoxAPI.ContainerCreateOptions{
 			TemplatePath:     guestSpec.TemplatePath,
 			StoragePool:      guestSpec.StoragePool,
 			Hostname:         hostname,
 			RootPassword:     guestSpec.Password,
-			RootSSHPublicKey: publicKey,
+			RootSSHPublicKey: strings.TrimSpace(string(publicKeyData)),
 			StorageSizeGB:    guestSpec.DiskSizeGB,
 			MemoryMB:         guestSpec.MemoryMB,
 			Cores:            guestSpec.Cores,
@@ -147,7 +147,22 @@ func redeployContainer(log ProgressLogger, id int64, startAfter, enableAdvancedL
 			CIDRBlock:        config.Config.Network.ContainerCIDR,
 			NameServer:       config.Config.Network.ContainerNameserver,
 			SearchDomain:     config.Config.Network.ContainerSearchDomain,
-		},
+		}
+	case db.GuestKindQEMU:
+		plan.vmOptions = &proxmoxAPI.VMCloneOptions{
+			VMID:         int(record.PVEID),
+			TemplateVMID: guestSpec.TemplateVMID,
+			TemplateName: guestSpec.TemplateRef,
+			Name:         hostname,
+			StoragePool:  guestSpec.StoragePool,
+			Full:         guestSpec.FullCloneEnabled(),
+			Cores:        guestSpec.Cores,
+			MemoryMB:     guestSpec.MemoryMB,
+			BootDisk:     guestSpec.BootDisk,
+			DiskSizeGB:   guestSpec.DiskSizeGB,
+		}
+	default:
+		return fmt.Errorf("unsupported guest kind %q", guestSpec.Kind)
 	}
 
 	var publicFolderURL = competitionPublicFolderURL(comp)
@@ -162,6 +177,10 @@ func redeployContainer(log ProgressLogger, id int64, startAfter, enableAdvancedL
 	}
 	if node == nil {
 		return fmt.Errorf("no proxmox nodes available for redeploy")
+	}
+	if plan.guestKind == db.GuestKindQEMU {
+		plan.vmOptions.TargetNode = node.Name
+		return redeployVirtualMachine(log, record, comp, team, plan, network, publicFolderURL, artifactBaseURL, startAfter, enableAdvancedLogging)
 	}
 
 	if err = deleteExistingContainer(record.PVEID); err != nil {
@@ -242,6 +261,99 @@ func redeployContainer(log ProgressLogger, id int64, startAfter, enableAdvancedL
 		}
 	}
 
+	return nil
+}
+
+func redeployVirtualMachine(log ProgressLogger, record *db.Container, comp *db.Competition, team *db.Team, plan *guestPlan, network *teamNetwork, publicFolderURL, artifactBaseURL string, startAfter, enableAdvancedLogging bool) (err error) {
+	if err = deleteExistingVirtualMachine(record.PVEID); err != nil {
+		return err
+	}
+
+	var vm *proxmox.VirtualMachine
+	if vm, err = api.CloneVirtualMachine(*plan.vmOptions); err != nil {
+		return fmt.Errorf("clone VM: %w", err)
+	}
+	defer func() {
+		if vm == nil || err == nil {
+			return
+		}
+		if stopErr := api.StopVirtualMachine(vm); stopErr != nil {
+			log.Errorf("Failed to stop VM %d after failed redeploy: %v\n", record.PVEID, stopErr)
+		}
+		if deleteErr := api.DeleteVirtualMachine(vm); deleteErr != nil {
+			log.Errorf("Failed to clean up VM %d after failed redeploy: %v\n", record.PVEID, deleteErr)
+		}
+	}()
+
+	if err = api.StartVirtualMachine(vm); err != nil {
+		return fmt.Errorf("start VM: %w", err)
+	}
+	if plan.guestOS == db.GuestOSWindows {
+		log.Statusf("Waiting for Windows VM %s and configuring networking...", plan.hostname)
+		if err = bootstrapWindowsVM(api, vm, plan); err != nil {
+			return fmt.Errorf("bootstrap Windows VM: %w", err)
+		}
+	} else if err = api.WaitForVirtualMachineAgent(vm, 15*time.Minute, 10*time.Second); err != nil {
+		return err
+	}
+	if err = api.SetVirtualMachineUserPassword(vm, plan.username, plan.password); err != nil {
+		return err
+	}
+	if err = runSetupScripts(log, api, nil, vm, comp, plan, network, publicFolderURL, artifactBaseURL, enableAdvancedLogging); err != nil {
+		return err
+	}
+	if err = api.ShutdownVirtualMachine(vm); err != nil {
+		return fmt.Errorf("shut down VM after redeploy: %w", err)
+	}
+
+	record.NodeName = vm.Node
+	record.StoragePool = plan.storagePool
+	record.Status = "stopped"
+	updateRedeployedGuestMetadata(log, record, team, plan)
+	if !startAfter {
+		return nil
+	}
+	if err = api.StartVirtualMachine(vm); err != nil {
+		return fmt.Errorf("start VM after redeploy: %w", err)
+	}
+	if err = api.WaitForVirtualMachineAgent(vm, 15*time.Minute, 10*time.Second); err != nil {
+		return fmt.Errorf("wait for VM after redeploy: %w", err)
+	}
+	record.Status = "running"
+	updateRedeployedGuestMetadata(log, record, team, plan)
+	return nil
+}
+
+func updateRedeployedGuestMetadata(log ProgressLogger, record *db.Container, team *db.Team, plan *guestPlan) {
+	record.TeamID = team.ID
+	record.ConfigName = strings.TrimSpace(plan.name)
+	record.GuestKind = plan.guestKind
+	record.GuestOS = plan.guestOS
+	record.ScriptShell = plan.scriptShell
+	record.TemplateRef = plan.templateRef
+	record.TemplateVMID = plan.templateVMID
+	record.LastUpdated = time.Now()
+	if updateErr := db.Containers.Update(record); updateErr != nil {
+		log.Errorf("failed to update guest %d metadata: %v\n", record.PVEID, updateErr)
+	}
+	team.LastUpdated = time.Now()
+	if updateErr := db.Teams.Update(team); updateErr != nil {
+		log.Errorf("failed to update team %d metadata: %v\n", team.ID, updateErr)
+	}
+}
+
+func deleteExistingVirtualMachine(vmID int64) error {
+	existing, err := api.VirtualMachine(int(vmID))
+	if err != nil {
+		if errors.Is(err, proxmox.ErrNotFound) {
+			return nil
+		}
+		return fmt.Errorf("lookup existing VM: %w", err)
+	}
+	_ = api.StopVirtualMachine(existing)
+	if err = api.DeleteVirtualMachine(existing); err != nil {
+		return fmt.Errorf("delete existing VM %d: %w", vmID, err)
+	}
 	return nil
 }
 

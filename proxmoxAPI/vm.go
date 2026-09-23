@@ -20,6 +20,7 @@ const (
 var diskSizePattern = regexp.MustCompile(`(?:^|,)size=([0-9]+(?:\.[0-9]+)?)([KMGT])(?:,|$)`)
 
 type VMCloneOptions struct {
+	VMID         int
 	TemplateVMID int
 	TemplateName string
 	Name         string
@@ -74,9 +75,12 @@ func (api *ProxmoxAPI) CloneVirtualMachine(options VMCloneOptions) (*proxmox.Vir
 		return nil, fmt.Errorf("VM template %d name %q does not match configured name %q", options.TemplateVMID, template.Name, expected)
 	}
 
-	newID, err := api.Cluster.NextID(api.bg)
-	if err != nil {
-		return nil, fmt.Errorf("allocate VMID: %w", err)
+	newID := options.VMID
+	if newID <= 0 {
+		newID, err = api.Cluster.NextID(api.bg)
+		if err != nil {
+			return nil, fmt.Errorf("allocate VMID: %w", err)
+		}
 	}
 	full := uint8(0)
 	if options.Full {
