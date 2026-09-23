@@ -239,6 +239,14 @@ The answer file contains a plaintext bootstrap password. Restrict access to the 
 
 While still in Audit Mode, run the VirtIO-Win guest tools installer from the attached VirtIO-Win ISO. The installer filename is normally `virtio-win-guest-tools.exe`. It installs the paravirtualized drivers needed by the VM. Current installation guidance and the current ISO location are maintained by the [VirtIO-Win project](https://virtio-win.github.io/Knowledge-Base/Driver-installation.html).
 
+Explicitly add and install the VirtIO serial driver from an elevated PowerShell or Command Prompt. QEMU Guest Agent uses this device to communicate with Proxmox. For Windows 11 with the VirtIO-Win ISO mounted as `D:`, run:
+
+```powershell
+pnputil.exe /add-driver D:\vioserial\w11\amd64\*.inf /install
+```
+
+Use the actual VirtIO-Win drive letter and the directory matching the guest OS if they differ. Confirm that `pnputil` reports the driver package as added or already present. Microsoft documents the command and `/install` behavior in the [PnPUtil command syntax](https://learn.microsoft.com/en-us/windows-hardware/drivers/devtest/pnputil-command-syntax).
+
 Install the 64-bit QEMU Guest Agent separately if the guest-tools installer did not install it. The MSI is normally located at:
 
 ```text
@@ -283,10 +291,19 @@ powercfg.exe /change monitor-timeout-ac 0
 
 Leave the VirtIO network adapter on DHCP. Do not save a competition IP address, gateway, DNS server, or team hostname in the template.
 
-When preparation and agent tests are complete, open an elevated Command Prompt and generalize the VM:
+Turn off BitLocker on the OS volume before running Sysprep. Suspending protection is not sufficient; wait for decryption to finish:
+
+```powershell
+manage-bde.exe -off C:
+manage-bde.exe -status C:
+```
+
+Rerun the status command until `Conversion Status` is `Fully Decrypted` and `Percentage Encrypted` is `0.0%`. Sysprep can fail while the OS volume remains encrypted. Microsoft documents that [`manage-bde -off`](https://learn.microsoft.com/en-us/windows-server/administration/windows-commands/manage-bde-off) decrypts the volume and removes its key protectors when complete.
+
+When preparation, agent tests, and decryption are complete, open an elevated Command Prompt and generalize the VM. Use the absolute Windows path rather than relying on environment-variable expansion:
 
 ```bat
-%WINDIR%\System32\Sysprep\Sysprep.exe /generalize /oobe /mode:vm /shutdown /unattend:C:\Windows\Panther\Unattend\koth-unattend.xml
+C:\Windows\System32\Sysprep\Sysprep.exe /generalize /oobe /mode:vm /shutdown /unattend:C:\Windows\Panther\Unattend\koth-unattend.xml
 ```
 
 Microsoft requires `/generalize` when a Windows image will be copied to another machine. `/mode:vm` is appropriate when the image will be redeployed to the same hypervisor and virtual hardware profile. See [Sysprep command-line options](https://learn.microsoft.com/en-us/windows-hardware/manufacture/desktop/sysprep-command-line-options?view=windows-11).
