@@ -14,12 +14,29 @@ if (-not (Get-Service -Name "sshd" -ErrorAction SilentlyContinue)) {
     if ($LASTEXITCODE -ne 0) { throw "OpenSSH download failed with exit code $LASTEXITCODE" }
     Expand-Archive -LiteralPath $archive -DestinationPath $extract -Force
     New-Item -ItemType Directory -Path $sshInstall -Force | Out-Null
-    Copy-Item -Path (Join-Path $extract "OpenSSH-Win64\*") -Destination $sshInstall -Recurse -Force
+    $sshSource = Join-Path $extract "OpenSSH-Win64"
+    $sessionSource = Join-Path $sshSource "sshd-session.exe"
+    $sessionDestination = Join-Path $sshInstall "sshd-session.exe"
+    for ($attempt = 1; $attempt -le 3; $attempt++) {
+        Copy-Item -Path (Join-Path $sshSource "*") -Destination $sshInstall -Recurse -Force
+        if ((Get-FileHash $sessionSource).Hash -eq (Get-FileHash $sessionDestination).Hash) { break }
+        if ($attempt -eq 3) { throw "OpenSSH binary verification failed after $attempt attempts" }
+    }
     & (Join-Path $sshInstall "install-sshd.ps1")
     Remove-Item -LiteralPath $archive, $extract -Recurse -Force -ErrorAction SilentlyContinue
 }
 
 Set-Service -Name "sshd" -StartupType Automatic
+$sshd = Join-Path $sshInstall "sshd.exe"
+$sshKeygen = Join-Path $sshInstall "ssh-keygen.exe"
+& $sshd -t 2>$null
+if ($LASTEXITCODE -ne 0) {
+    Remove-Item -Path "C:\ProgramData\ssh\ssh_host_*_key*" -Force -ErrorAction SilentlyContinue
+    & $sshKeygen -A
+    if ($LASTEXITCODE -ne 0) { throw "OpenSSH host-key generation failed with exit code $LASTEXITCODE" }
+}
+& $sshd -t
+if ($LASTEXITCODE -ne 0) { throw "OpenSSH configuration validation failed with exit code $LASTEXITCODE" }
 Start-Service -Name "sshd"
 & schtasks.exe /Create /TN "PVE KOTH Start OpenSSH" /SC ONSTART /DELAY 0000:15 /RU SYSTEM /RL HIGHEST /TR "sc.exe start sshd" /F | Out-Null
 if ($LASTEXITCODE -ne 0) { throw "Failed to create the OpenSSH startup task" }
