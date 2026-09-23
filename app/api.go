@@ -404,7 +404,7 @@ func apiCreateCompetition(c *fiber.Ctx) (err error) {
 	ctx.logf("advanced logging: %t", enableAdvancedLogging)
 
 	if err = validateCompetitionTemplates(&compReq); err != nil {
-		return ctx.fail(c, fiber.StatusBadRequest, "invalid container configuration", err)
+		return ctx.fail(c, fiber.StatusBadRequest, "invalid guest configuration", err)
 	}
 
 	var packageRecord *db.CompetitionPackage
@@ -1499,43 +1499,29 @@ func validateCompetitionTemplates(req *db.CreateCompetitionRequest) error {
 		return fmt.Errorf("competition request is nil")
 	}
 
-	var lookup map[string]db.ContainerSpecTemplate
-	var err error
-	if lookup, err = koth.BuildContainerSpecTemplateIndex(req.ContainerSpecsTemplates); err != nil {
+	if err := koth.NormalizeGuestConfiguration(req); err != nil {
 		return err
 	}
-	req.TemplateLookup = lookup
 
 	restrictions := config.Config.ContainerRestrictions
-	for name, spec := range lookup {
-		if strings.TrimSpace(spec.TemplatePath) == "" {
-			return fmt.Errorf("template %q missing templatePath", name)
-		}
-		if strings.TrimSpace(spec.StoragePool) == "" {
-			return fmt.Errorf("template %q missing storagePool", name)
-		}
-		if strings.TrimSpace(spec.RootPassword) == "" {
-			return fmt.Errorf("template %q missing rootPassword", name)
-		}
-		if spec.StorageSizeGB <= 0 {
-			return fmt.Errorf("template %q invalid storageSizeGB (%d)", name, spec.StorageSizeGB)
-		}
-		if spec.MemoryMB <= 0 {
-			return fmt.Errorf("template %q invalid memoryMB (%d)", name, spec.MemoryMB)
-		}
-		if spec.Cores <= 0 {
-			return fmt.Errorf("template %q invalid cores (%d)", name, spec.Cores)
-		}
-
-		if len(restrictions.AllowedLXCTemplates) > 0 && !containsString(restrictions.AllowedLXCTemplates, spec.TemplatePath) {
-			return fmt.Errorf("template %q uses disallowed template path %q", name, spec.TemplatePath)
+	for name, spec := range req.GuestTemplateLookup {
+		switch spec.Kind {
+		case db.GuestKindLXC:
+			if len(restrictions.AllowedLXCTemplates) > 0 && !containsString(restrictions.AllowedLXCTemplates, spec.TemplatePath) {
+				return fmt.Errorf("template %q uses disallowed LXC template path %q", name, spec.TemplatePath)
+			}
+		case db.GuestKindQEMU:
+			if len(restrictions.AllowedQEMUTemplates) > 0 && !containsInt(restrictions.AllowedQEMUTemplates, spec.TemplateVMID) {
+				return fmt.Errorf("template %q uses disallowed QEMU template VMID %d", name, spec.TemplateVMID)
+			}
+			return fmt.Errorf("template %q uses QEMU, but full-VM provisioning is not implemented yet", name)
 		}
 		if len(restrictions.AllowedStoragePools) > 0 && !containsString(restrictions.AllowedStoragePools, spec.StoragePool) {
 			return fmt.Errorf("template %q uses disallowed storage pool %q", name, spec.StoragePool)
 		}
 
 		if restrictions.MaxDiskMB > 0 {
-			storageMB := int64(spec.StorageSizeGB) * 1024
+			storageMB := int64(spec.DiskSizeGB) * 1024
 			if storageMB > int64(restrictions.MaxDiskMB) {
 				return fmt.Errorf("template %q requests %d MB which exceeds maxDiskMB (%d)", name, storageMB, restrictions.MaxDiskMB)
 			}
@@ -1548,16 +1534,25 @@ func validateCompetitionTemplates(req *db.CreateCompetitionRequest) error {
 		}
 	}
 
-	for _, cfg := range req.TeamContainerConfigs {
-		if strings.TrimSpace(cfg.ContainerSpecsTemplate) == "" {
-			return fmt.Errorf("team container %s missing containerSpecsTemplate", cfg.Name)
+	for _, cfg := range req.TeamGuestConfigs {
+		if strings.TrimSpace(cfg.GuestSpecsTemplate) == "" {
+			return fmt.Errorf("team guest %s missing guestSpecsTemplate", cfg.Name)
 		}
-		if _, err = koth.ResolveContainerSpecTemplate(lookup, cfg.ContainerSpecsTemplate); err != nil {
-			return fmt.Errorf("team container %s references invalid template %q: %w", cfg.Name, cfg.ContainerSpecsTemplate, err)
+		if _, err := koth.ResolveGuestSpecTemplate(req.GuestTemplateLookup, cfg.GuestSpecsTemplate); err != nil {
+			return fmt.Errorf("team guest %s references invalid template %q: %w", cfg.Name, cfg.GuestSpecsTemplate, err)
 		}
 	}
 
 	return nil
+}
+
+func containsInt(list []int, value int) bool {
+	for _, entry := range list {
+		if entry == value {
+			return true
+		}
+	}
+	return false
 }
 
 func containsString(list []string, value string) bool {

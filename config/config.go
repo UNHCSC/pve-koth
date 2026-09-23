@@ -77,11 +77,12 @@ type NetworkConfig struct {
 }
 
 type ContainerRestrictionsConfig struct {
-	AllowedLXCTemplates []string `toml:"allowed_lxc_templates" default:"[]"`
-	AllowedStoragePools []string `toml:"allowed_storage_pools" default:"[]"`
-	MaxCPUCores         int      `toml:"max_cpu_cores" default:"4" validate:"min=1"`
-	MaxMemoryMB         int      `toml:"max_memory_mb" default:"8192" validate:"min=1"`
-	MaxDiskMB           int      `toml:"max_disk_mb" default:"32768" validate:"min=1"`
+	AllowedLXCTemplates  []string `toml:"allowed_lxc_templates" default:"[]"`
+	AllowedQEMUTemplates []int    `toml:"allowed_qemu_templates" default:"[]"`
+	AllowedStoragePools  []string `toml:"allowed_storage_pools" default:"[]"`
+	MaxCPUCores          int      `toml:"max_cpu_cores" default:"4" validate:"min=1"`
+	MaxMemoryMB          int      `toml:"max_memory_mb" default:"8192" validate:"min=1"`
+	MaxDiskMB            int      `toml:"max_disk_mb" default:"32768" validate:"min=1"`
 }
 
 func (n *NetworkConfig) initialize() error {

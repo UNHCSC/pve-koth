@@ -85,13 +85,18 @@ type ProgressLogger interface {
 	Successf(format string, args ...any)
 }
 
-type containerPlan struct {
+type guestPlan struct {
 	team          *db.Team
 	name          string
 	sanitizedName string
 	order         int
 	ipAddress     string
 	setupScripts  []string
+	guestKind     db.GuestKind
+	guestOS       db.GuestOS
+	scriptShell   db.ScriptShell
+	templateRef   string
+	templateVMID  int
 	options       *proxmoxAPI.ContainerCreateOptions
 }
 
@@ -100,8 +105,8 @@ type teamNetwork struct {
 	ipOrder   []string
 }
 
-type provisionedContainer struct {
-	plan     *containerPlan
+type provisionedGuest struct {
+	plan     *guestPlan
 	result   *proxmoxAPI.ProxmoxAPICreateResult
 	recorded bool
 }
@@ -243,7 +248,7 @@ func CreateNewCompWithLogger(request *db.CreateCompetitionRequest, logSink Progr
 	}
 
 	var (
-		plans        []*containerPlan
+		plans        []*guestPlan
 		teamNetworks = make(map[int64]*teamNetwork)
 		teamLocks    = make(map[int64]*sync.Mutex)
 		createdTeams []*db.Team
@@ -301,14 +306,25 @@ func CreateNewCompWithLogger(request *db.CreateCompetitionRequest, logSink Progr
 				localLog.Errorf("Failed to resolve template for %s: %v\n", templateCfg.Name, err)
 				return
 			}
+			guestSpec, ok := request.GuestTemplateLookup[strings.TrimSpace(templateCfg.ContainerSpecsTemplate)]
+			if !ok {
+				localLog.Errorf("Failed to resolve normalized guest template for %s\n", templateCfg.Name)
+				err = fmt.Errorf("normalized guest template %q is not defined", templateCfg.ContainerSpecsTemplate)
+				return
+			}
 
-			var plan = &containerPlan{
+			var plan = &guestPlan{
 				team:          team,
 				name:          templateCfg.Name,
 				sanitizedName: sanitizedName,
 				order:         templateOrder,
 				ipAddress:     hostIP.String(),
 				setupScripts:  append([]string(nil), templateCfg.SetupScript...),
+				guestKind:     guestSpec.Kind,
+				guestOS:       guestSpec.OS,
+				scriptShell:   guestSpec.Shell,
+				templateRef:   strings.TrimSpace(templateCfg.ContainerSpecsTemplate),
+				templateVMID:  guestSpec.TemplateVMID,
 				options: &proxmoxAPI.ContainerCreateOptions{
 					TemplatePath:     templateSpec.TemplatePath,
 					StoragePool:      templateSpec.StoragePool,
@@ -340,7 +356,7 @@ func CreateNewCompWithLogger(request *db.CreateCompetitionRequest, logSink Progr
 	}
 
 	var (
-		provisioned         []*provisionedContainer
+		provisioned         []*provisionedGuest
 		provisionedMu       sync.Mutex
 		totalContainers     = len(plans)
 		completedContainers int32
@@ -348,7 +364,7 @@ func CreateNewCompWithLogger(request *db.CreateCompetitionRequest, logSink Progr
 
 	defer func() {
 		if err != nil {
-			cleanupProvisionedContainers(localLog, comp, provisioned)
+			cleanupProvisionedGuests(localLog, comp, provisioned)
 			cleanupFailedCompetitionResources(localLog, comp, createdTeams, dataDir, request.CompetitionID, request.PackagePath)
 		}
 	}()
@@ -372,9 +388,9 @@ func CreateNewCompWithLogger(request *db.CreateCompetitionRequest, logSink Progr
 		network := teamNetworks[plan.team.ID]
 		teamLock := teamLocks[plan.team.ID]
 
-		go func(plan *containerPlan, network *teamNetwork, teamLock *sync.Mutex) {
+		go func(plan *guestPlan, network *teamNetwork, teamLock *sync.Mutex) {
 			defer wg.Done()
-			entry, perr := provisionContainerPlan(ctx, localLog, plan, comp, network, privateKey, publicFolderURL, artifactBaseURL, teamLock, &compLock, request.EnableAdvancedLogging)
+			entry, perr := provisionGuestPlan(ctx, localLog, plan, comp, network, privateKey, publicFolderURL, artifactBaseURL, teamLock, &compLock, request.EnableAdvancedLogging)
 			if entry != nil {
 				provisionedMu.Lock()
 				provisioned = append(provisioned, entry)
@@ -414,7 +430,7 @@ func CreateNewCompWithLogger(request *db.CreateCompetitionRequest, logSink Progr
 	return
 }
 
-func provisionContainerPlan(ctx context.Context, log ProgressLogger, plan *containerPlan, comp *db.Competition, network *teamNetwork, privateKey, publicFolderURL, artifactBaseURL string, teamLock *sync.Mutex, compLock *sync.Mutex, enableAdvancedLogging bool) (entry *provisionedContainer, err error) {
+func provisionGuestPlan(ctx context.Context, log ProgressLogger, plan *guestPlan, comp *db.Competition, network *teamNetwork, privateKey, publicFolderURL, artifactBaseURL string, teamLock *sync.Mutex, compLock *sync.Mutex, enableAdvancedLogging bool) (entry *provisionedGuest, err error) {
 	if plan == nil {
 		return nil, fmt.Errorf("container plan is nil")
 	}
@@ -434,7 +450,7 @@ func provisionContainerPlan(ctx context.Context, log ProgressLogger, plan *conta
 		return nil, err
 	}
 
-	entry = &provisionedContainer{
+	entry = &provisionedGuest{
 		plan:   plan,
 		result: createResult,
 	}
@@ -472,7 +488,7 @@ func provisionContainerPlan(ctx context.Context, log ProgressLogger, plan *conta
 	}
 
 	var record *db.Container
-	if record, err = recordProvisionedContainer(comp, plan.team, plan, createResult, plan.ipAddress, plan.options.StoragePool, createResult.Container.Node, teamLock, compLock); err != nil {
+	if record, err = recordProvisionedGuest(comp, plan.team, plan, createResult, plan.ipAddress, plan.options.StoragePool, createResult.Container.Node, teamLock, compLock); err != nil {
 		log.Errorf("Failed to record container %d: %v\n", createResult.CTID, err)
 		return entry, err
 	}
@@ -494,7 +510,7 @@ func provisionContainerPlan(ctx context.Context, log ProgressLogger, plan *conta
 	return entry, nil
 }
 
-func runSetupScripts(log ProgressLogger, api *proxmoxAPI.ProxmoxAPI, ct *proxmox.Container, comp *db.Competition, plan *containerPlan, network *teamNetwork, publicFolderURL, artifactBaseURL string, logEnv bool) (err error) {
+func runSetupScripts(log ProgressLogger, api *proxmoxAPI.ProxmoxAPI, ct *proxmox.Container, comp *db.Competition, plan *guestPlan, network *teamNetwork, publicFolderURL, artifactBaseURL string, logEnv bool) (err error) {
 	if len(plan.setupScripts) == 0 {
 		log.Statusf("No setup scripts defined for %s; skipping.", plan.options.Hostname)
 		return nil
@@ -558,7 +574,7 @@ func waitForConsoleReady(api *proxmoxAPI.ProxmoxAPI, ct *proxmox.Container, root
 	return fmt.Errorf("container console not ready for raw execution")
 }
 
-func buildScriptEnv(comp *db.Competition, plan *containerPlan, network *teamNetwork, publicFolderURL string) map[string]any {
+func buildScriptEnv(comp *db.Competition, plan *guestPlan, network *teamNetwork, publicFolderURL string) map[string]any {
 	var envs = map[string]any{
 		"KOTH_COMP_ID":       comp.SystemID,
 		"KOTH_TEAM_ID":       fmt.Sprintf("%d", plan.team.ID),
@@ -606,7 +622,7 @@ func formatScriptEnv(envs map[string]any) string {
 	return strings.Join(parts, " ")
 }
 
-func recordProvisionedContainer(comp *db.Competition, team *db.Team, plan *containerPlan, result *proxmoxAPI.ProxmoxAPICreateResult, ip, storagePool, nodeName string, teamLock *sync.Mutex, compLock *sync.Mutex) (record *db.Container, err error) {
+func recordProvisionedGuest(comp *db.Competition, team *db.Team, plan *guestPlan, result *proxmoxAPI.ProxmoxAPICreateResult, ip, storagePool, nodeName string, teamLock *sync.Mutex, compLock *sync.Mutex) (record *db.Container, err error) {
 	if teamLock != nil {
 		teamLock.Lock()
 		defer teamLock.Unlock()
@@ -616,15 +632,20 @@ func recordProvisionedContainer(comp *db.Competition, team *db.Team, plan *conta
 		defer compLock.Unlock()
 	}
 	record = &db.Container{
-		PVEID:       int64(result.CTID),
-		IPAddress:   ip,
-		Status:      "running",
-		TeamID:      plan.team.ID,
-		ConfigName:  plan.name,
-		StoragePool: storagePool,
-		NodeName:    nodeName,
-		LastUpdated: time.Now(),
-		CreatedAt:   time.Now(),
+		PVEID:        int64(result.CTID),
+		IPAddress:    ip,
+		Status:       "running",
+		TeamID:       plan.team.ID,
+		ConfigName:   plan.name,
+		StoragePool:  storagePool,
+		NodeName:     nodeName,
+		GuestKind:    plan.guestKind,
+		GuestOS:      plan.guestOS,
+		ScriptShell:  plan.scriptShell,
+		TemplateRef:  plan.templateRef,
+		TemplateVMID: plan.templateVMID,
+		LastUpdated:  time.Now(),
+		CreatedAt:    time.Now(),
 	}
 
 	if err = db.Containers.Insert(record); err != nil {
@@ -641,7 +662,7 @@ func recordProvisionedContainer(comp *db.Competition, team *db.Team, plan *conta
 	return record, nil
 }
 
-func cleanupProvisionedContainers(log ProgressLogger, comp *db.Competition, provisioned []*provisionedContainer) {
+func cleanupProvisionedGuests(log ProgressLogger, comp *db.Competition, provisioned []*provisionedGuest) {
 	for i := len(provisioned) - 1; i >= 0; i-- {
 		var entry = provisioned[i]
 		if entry == nil || entry.result == nil || entry.result.Container == nil {
@@ -916,6 +937,14 @@ func sanitizeRelativePath(relative string) string {
 func ensureTemplateLookup(request *db.CreateCompetitionRequest) (map[string]db.ContainerSpecTemplate, error) {
 	if request == nil {
 		return nil, fmt.Errorf("competition request is nil")
+	}
+	if err := NormalizeGuestConfiguration(request); err != nil {
+		return nil, err
+	}
+	for name, template := range request.GuestTemplateLookup {
+		if template.Kind != db.GuestKindLXC {
+			return nil, fmt.Errorf("guest template %q uses %q, but QEMU provisioning is not implemented yet", name, template.Kind)
+		}
 	}
 	if request.TemplateLookup != nil {
 		return request.TemplateLookup, nil

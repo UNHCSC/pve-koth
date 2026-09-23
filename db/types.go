@@ -87,16 +87,52 @@ type Team struct {
 	NetworkCIDR  string    `json:"networkCIDR" gomysql:"network_cidr"`
 }
 
+type GuestKind string
+
+const (
+	GuestKindLXC  GuestKind = "lxc"
+	GuestKindQEMU GuestKind = "qemu"
+)
+
+type GuestOS string
+
+const (
+	GuestOSLinux   GuestOS = "linux"
+	GuestOSWindows GuestOS = "windows"
+)
+
+type ScriptShell string
+
+const (
+	ScriptShellBash       ScriptShell = "bash"
+	ScriptShellPowerShell ScriptShell = "powershell"
+)
+
+type NetworkConfigurator string
+
+const (
+	NetworkConfiguratorPVE             NetworkConfigurator = "pve"
+	NetworkConfiguratorNetworkManager  NetworkConfigurator = "networkmanager"
+	NetworkConfiguratorNetplan         NetworkConfigurator = "netplan"
+	NetworkConfiguratorSystemdNetworkd NetworkConfigurator = "systemd-networkd"
+	NetworkConfiguratorPowerShell      NetworkConfigurator = "powershell"
+)
+
 type Container struct {
-	PVEID       int64     `json:"id" gomysql:"id,primary,unique"`
-	IPAddress   string    `json:"ipAddress" gomysql:"ip_address,unique"`
-	Status      string    `json:"status" gomysql:"status"`
-	TeamID      int64     `json:"teamID,omitempty" gomysql:"team_id"`
-	ConfigName  string    `json:"containerConfigName,omitempty" gomysql:"container_config_name"`
-	StoragePool string    `json:"storagePool" gomysql:"storage_pool"`
-	NodeName    string    `json:"nodeName" gomysql:"node_name"`
-	LastUpdated time.Time `json:"lastUpdated" gomysql:"last_updated"`
-	CreatedAt   time.Time `json:"createdAt" gomysql:"created_at"`
+	PVEID        int64       `json:"id" gomysql:"id,primary,unique"`
+	IPAddress    string      `json:"ipAddress" gomysql:"ip_address,unique"`
+	Status       string      `json:"status" gomysql:"status"`
+	TeamID       int64       `json:"teamID,omitempty" gomysql:"team_id"`
+	ConfigName   string      `json:"containerConfigName,omitempty" gomysql:"container_config_name"`
+	StoragePool  string      `json:"storagePool" gomysql:"storage_pool"`
+	NodeName     string      `json:"nodeName" gomysql:"node_name"`
+	GuestKind    GuestKind   `json:"guestKind" gomysql:"guest_kind"`
+	GuestOS      GuestOS     `json:"guestOS" gomysql:"guest_os"`
+	ScriptShell  ScriptShell `json:"scriptShell" gomysql:"script_shell"`
+	TemplateRef  string      `json:"templateRef,omitempty" gomysql:"template_ref"`
+	TemplateVMID int         `json:"templateVMID,omitempty" gomysql:"template_vmid"`
+	LastUpdated  time.Time   `json:"lastUpdated" gomysql:"last_updated"`
+	CreatedAt    time.Time   `json:"createdAt" gomysql:"created_at"`
 }
 
 type ScoreResult struct {
@@ -183,7 +219,38 @@ type TeamContainerConfig struct {
 	ContainerSpecsTemplate string         `json:"containerSpecsTemplate"`
 }
 
+type GuestSpecTemplate struct {
+	Kind                GuestKind           `json:"kind"`
+	OS                  GuestOS             `json:"os"`
+	Shell               ScriptShell         `json:"shell"`
+	TemplatePath        string              `json:"templatePath,omitempty"`
+	TemplateVMID        int                 `json:"templateVMID,omitempty"`
+	StoragePool         string              `json:"storagePool"`
+	Username            string              `json:"username,omitempty"`
+	Password            string              `json:"password,omitempty"`
+	DiskSizeGB          int                 `json:"diskSizeGB"`
+	MemoryMB            int                 `json:"memoryMB"`
+	Cores               int                 `json:"cores"`
+	FullClone           *bool               `json:"fullClone,omitempty"`
+	BootDisk            string              `json:"bootDisk,omitempty"`
+	NetworkConfigurator NetworkConfigurator `json:"networkConfigurator,omitempty"`
+}
+
+func (t GuestSpecTemplate) FullCloneEnabled() bool {
+	return t.FullClone == nil || *t.FullClone
+}
+
+type TeamGuestConfig struct {
+	Name               string         `json:"name"`
+	LastOctetValue     int            `json:"lastOctetValue"`
+	SetupScript        []string       `json:"setupScript"`
+	ScoringScript      []string       `json:"scoringScript"`
+	ScoringSchema      []ScoringCheck `json:"scoringSchema"`
+	GuestSpecsTemplate string         `json:"guestSpecsTemplate"`
+}
+
 type CreateCompetitionRequest struct {
+	SchemaVersion          int    `json:"schemaVersion,omitempty"`
 	CompetitionID          string `json:"competitionID"`
 	CompetitionName        string `json:"competitionName"`
 	CompetitionDescription string `json:"competitionDescription"`
@@ -196,6 +263,10 @@ type CreateCompetitionRequest struct {
 	ContainerSpecsTemplates map[string]ContainerSpecTemplate `json:"containerSpecsTemplates"`
 	TeamContainerConfigs    []TeamContainerConfig            `json:"teamContainerConfigs"`
 	TemplateLookup          map[string]ContainerSpecTemplate `json:"-"`
+	GuestSpecTemplates      map[string]GuestSpecTemplate     `json:"guestSpecTemplates,omitempty"`
+	TeamGuestConfigs        []TeamGuestConfig                `json:"teamGuestConfigs,omitempty"`
+	GuestTemplateLookup     map[string]GuestSpecTemplate     `json:"-"`
+	GuestConfigNormalized   bool                             `json:"-"`
 	SetupPublicFolder       string                           `json:"setupPublicFolder"`
 	WriteupFilePath         string                           `json:"writeupFilePath"`
 	AttachedFiles           []struct {

@@ -14,6 +14,10 @@ var (
 )
 
 func Init() (err error) {
+	if err = migrateDatabase(config.Config.Database.File); err != nil {
+		return
+	}
+
 	if err = gomysql.Begin(config.Config.Database.File); err != nil {
 		return
 	}

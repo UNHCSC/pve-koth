@@ -248,13 +248,23 @@ func scoreTeam(comp *db.Competition, team *db.Team, teamIndex int, configs []db.
 			scoringLog.Errorf("failed to resolve template %s for %s: %v\n", containerCfg.ContainerSpecsTemplate, containerCfg.Name, specErr)
 			continue
 		}
+		guestSpec, ok := req.GuestTemplateLookup[strings.TrimSpace(containerCfg.ContainerSpecsTemplate)]
+		if !ok {
+			scoringLog.Errorf("failed to resolve normalized guest template %s for %s\n", containerCfg.ContainerSpecsTemplate, containerCfg.Name)
+			continue
+		}
 
-		plan := &containerPlan{
+		plan := &guestPlan{
 			team:          team,
 			name:          containerCfg.Name,
 			sanitizedName: sanitized,
 			order:         order,
 			ipAddress:     ipAddress,
+			guestKind:     guestSpec.Kind,
+			guestOS:       guestSpec.OS,
+			scriptShell:   guestSpec.Shell,
+			templateRef:   strings.TrimSpace(containerCfg.ContainerSpecsTemplate),
+			templateVMID:  guestSpec.TemplateVMID,
 			options: &proxmoxAPI.ContainerCreateOptions{
 				Hostname:     fmt.Sprintf("%s-team-%d-%s", comp.ContainerRestrictions.HostnamePrefix, teamIndex+1, containerCfg.Name),
 				RootPassword: templateSpec.RootPassword,
@@ -271,7 +281,7 @@ func scoreTeam(comp *db.Competition, team *db.Team, teamIndex int, configs []db.
 		}
 
 		wg.Add(1)
-		go func(cfg db.TeamContainerConfig, plan *containerPlan) {
+		go func(cfg db.TeamContainerConfig, plan *guestPlan) {
 			defer wg.Done()
 			score, detail := scoreContainer(comp, plan, network, publicFolderURL, artifactBaseURL, cfg.ScoringScript, cfg.ScoringSchema)
 			mu.Lock()
@@ -285,7 +295,7 @@ func scoreTeam(comp *db.Competition, team *db.Team, teamIndex int, configs []db.
 	return total, results, nil
 }
 
-func scoreContainer(comp *db.Competition, plan *containerPlan, network *teamNetwork, publicFolderURL, artifactBaseURL string, scoringScripts []string, checks []db.ScoringCheck) (int, containerScoreResult) {
+func scoreContainer(comp *db.Competition, plan *guestPlan, network *teamNetwork, publicFolderURL, artifactBaseURL string, scoringScripts []string, checks []db.ScoringCheck) (int, containerScoreResult) {
 	var result containerScoreResult
 	if plan != nil {
 		result.Name = plan.name
