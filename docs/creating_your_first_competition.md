@@ -34,6 +34,47 @@ The new network defaults (gateway, DNS, search domain, constraint CIDRs) now liv
 
 When you're ready to upload, zip the folder so that `config.json` is at the archive root and upload via the dashboard's create competition modal.
 
+### Guest schema version 2
+
+The guest schema generalizes competition configuration for both LXC containers and QEMU full VMs. Existing packages that omit `schemaVersion` and use `containerSpecsTemplates`/`teamContainerConfigs` remain supported and are normalized internally as Linux LXC guests using Bash.
+
+New packages set `schemaVersion` to `2` and use `guestSpecTemplates`/`teamGuestConfigs`. Do not mix the legacy and version 2 field sets in one package.
+
+```json
+{
+  "schemaVersion": 2,
+  "guestSpecTemplates": {
+    "windows-11": {
+      "kind": "qemu",
+      "os": "windows",
+      "templateVMID": 9001,
+      "storagePool": "team",
+      "username": "kothadmin",
+      "password": "replace-this-temporary-password",
+      "diskSizeGB": 40,
+      "memoryMB": 4096,
+      "cores": 2,
+      "fullClone": true,
+      "bootDisk": "scsi0",
+      "networkConfigurator": "powershell"
+    }
+  },
+  "teamGuestConfigs": [
+    {
+      "name": "desktop",
+      "lastOctetValue": 20,
+      "guestSpecsTemplate": "windows-11",
+      "setupScript": ["scripts/setup-desktop.ps1"],
+      "scoringScript": ["scripts/score-desktop.ps1"]
+    }
+  ]
+}
+```
+
+Supported QEMU network configurators are `networkmanager`, `netplan`, and `systemd-networkd` for Linux and `powershell` for Windows. LXC uses `pve`. Omitting `shell` selects `bash` for Linux and `powershell` for Windows; omitting `fullClone` defaults to a full clone.
+
+Schema version 2 parsing and validation are available now. QEMU packages are rejected with an explicit validation error until the QEMU provisioning provider is implemented in the next feature phase, so they cannot accidentally enter the LXC provisioner.
+
 ### Available Environment Variables
 
 Scripts executed inside each container receive the following environment variables:

@@ -17,11 +17,16 @@ func TestDBCrudSimpleContainer(t *testing.T) {
 	var (
 		err error
 		ct  *db.Container = &db.Container{
-			PVEID:       123,
-			IPAddress:   "10.10.10.10",
-			Status:      "running",
-			LastUpdated: time.Now(),
-			CreatedAt:   time.Now(),
+			PVEID:        123,
+			IPAddress:    "10.10.10.10",
+			Status:       "running",
+			GuestKind:    db.GuestKindQEMU,
+			GuestOS:      db.GuestOSWindows,
+			ScriptShell:  db.ScriptShellPowerShell,
+			TemplateRef:  "windows-11",
+			TemplateVMID: 9001,
+			LastUpdated:  time.Now(),
+			CreatedAt:    time.Now(),
 		}
 	)
 
@@ -38,6 +43,11 @@ func TestDBCrudSimpleContainer(t *testing.T) {
 
 	assert.NotNil(t, readCt)
 	assert.Equal(t, ct.PVEID, readCt.PVEID)
+	assert.Equal(t, db.GuestKindQEMU, readCt.GuestKind)
+	assert.Equal(t, db.GuestOSWindows, readCt.GuestOS)
+	assert.Equal(t, db.ScriptShellPowerShell, readCt.ScriptShell)
+	assert.Equal(t, "windows-11", readCt.TemplateRef)
+	assert.Equal(t, 9001, readCt.TemplateVMID)
 
 	// Update
 	ct.Status = "stopped"

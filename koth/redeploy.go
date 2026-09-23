@@ -112,14 +112,23 @@ func redeployContainer(log ProgressLogger, id int64, startAfter, enableAdvancedL
 	if templateSpec, err = ResolveContainerSpecTemplate(req.TemplateLookup, cfg.ContainerSpecsTemplate); err != nil {
 		return fmt.Errorf("resolve template for %s: %w", cfg.Name, err)
 	}
+	guestSpec, ok := req.GuestTemplateLookup[strings.TrimSpace(cfg.ContainerSpecsTemplate)]
+	if !ok {
+		return fmt.Errorf("resolve normalized guest template for %s", cfg.Name)
+	}
 
-	plan := &containerPlan{
+	plan := &guestPlan{
 		team:          team,
 		name:          cfg.Name,
 		sanitizedName: sanitizeContainerName(cfg.Name),
 		order:         cfgIndex,
 		ipAddress:     record.IPAddress,
 		setupScripts:  append([]string(nil), cfg.SetupScript...),
+		guestKind:     guestSpec.Kind,
+		guestOS:       guestSpec.OS,
+		scriptShell:   guestSpec.Shell,
+		templateRef:   strings.TrimSpace(cfg.ContainerSpecsTemplate),
+		templateVMID:  guestSpec.TemplateVMID,
 		options: &proxmoxAPI.ContainerCreateOptions{
 			TemplatePath:     templateSpec.TemplatePath,
 			StoragePool:      templateSpec.StoragePool,
@@ -197,6 +206,11 @@ func redeployContainer(log ProgressLogger, id int64, startAfter, enableAdvancedL
 	record.Status = "stopped"
 	record.TeamID = team.ID
 	record.ConfigName = strings.TrimSpace(cfg.Name)
+	record.GuestKind = plan.guestKind
+	record.GuestOS = plan.guestOS
+	record.ScriptShell = plan.scriptShell
+	record.TemplateRef = plan.templateRef
+	record.TemplateVMID = plan.templateVMID
 	record.LastUpdated = time.Now()
 	if updateErr := db.Containers.Update(record); updateErr != nil {
 		log.Errorf("failed to update container %d metadata: %v\n", record.PVEID, updateErr)
