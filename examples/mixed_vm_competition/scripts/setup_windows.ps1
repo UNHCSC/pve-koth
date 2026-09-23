@@ -45,6 +45,7 @@ if (-not (Get-Service -Name "sshd" -ErrorAction SilentlyContinue)) {
     if ($installExitCode -ne 0 -and -not (Get-Service -Name "sshd" -ErrorAction SilentlyContinue)) {
         throw "OpenSSH service installation failed with exit code $installExitCode"
     }
+
     Remove-Item -LiteralPath $archive, $extract -Recurse -Force -ErrorAction SilentlyContinue
 }
 
