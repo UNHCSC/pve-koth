@@ -49,14 +49,11 @@ if (-not (Get-Service -Name "sshd" -ErrorAction SilentlyContinue)) {
 Set-Service -Name "sshd" -StartupType Automatic
 $sshd = Join-Path $sshInstall "sshd.exe"
 $sshKeygen = Join-Path $sshInstall "ssh-keygen.exe"
-& $sshd -t 2>$null
-
+New-Item -ItemType Directory -Path "C:\ProgramData\ssh" -Force | Out-Null
+Remove-Item -Path "C:\ProgramData\ssh\ssh_host_*_key*" -Force -ErrorAction SilentlyContinue
+& $sshKeygen -A
 if ($LASTEXITCODE -ne 0) {
-    Remove-Item -Path "C:\ProgramData\ssh\ssh_host_*_key*" -Force -ErrorAction SilentlyContinue
-    & $sshKeygen -A
-    if ($LASTEXITCODE -ne 0) {
-        throw "OpenSSH host-key generation failed with exit code $LASTEXITCODE"
-    }
+    throw "OpenSSH host-key generation failed with exit code $LASTEXITCODE"
 }
 
 & $sshd -t
