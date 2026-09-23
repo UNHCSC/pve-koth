@@ -201,6 +201,7 @@ In Audit Mode, create `C:\Windows\Panther\Unattend\koth-unattend.xml` with an an
                xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State"
                xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
       <OOBE>
+        <HideEULAPage>true</HideEULAPage>
         <HideOEMRegistrationScreen>true</HideOEMRegistrationScreen>
         <HideOnlineAccountScreens>true</HideOnlineAccountScreens>
         <HideWirelessSetupInOOBE>true</HideWirelessSetupInOOBE>
@@ -225,8 +226,9 @@ In Audit Mode, create `C:\Windows\Panther\Unattend\koth-unattend.xml` with an an
 </unattend>
 ```
 
-Microsoft documents `HideOnlineAccountScreens` specifically for deployments that should not require an email-address sign-in, and `UserAccounts` for creating local users during `oobeSystem`:
+Microsoft documents `HideEULAPage` for suppressing the license-terms page during OOBE, `HideOnlineAccountScreens` for deployments that should not require an email-address sign-in, and `UserAccounts` for creating local users during `oobeSystem`. Microsoft limits OEM and system-builder use of `HideEULAPage` to testing before shipment; this guide uses it for disposable competition lab VMs, not devices shipped to customers. Hiding the page does not waive the license terms or make an unlicensed installation licensed:
 
+- [HideEULAPage](https://learn.microsoft.com/en-us/windows-hardware/customize/desktop/unattend/microsoft-windows-shell-setup-oobe-hideeulapage)
 - [HideOnlineAccountScreens](https://learn.microsoft.com/en-us/windows-hardware/customize/desktop/unattend/microsoft-windows-shell-setup-oobe-hideonlineaccountscreens)
 - [Automate OOBE](https://learn.microsoft.com/en-us/windows-hardware/customize/desktop/automate-oobe)
 - [Local account groups](https://learn.microsoft.com/en-us/windows-hardware/customize/desktop/unattend/microsoft-windows-shell-setup-useraccounts-localaccounts-localaccount-group)
@@ -318,6 +320,7 @@ Before making the template available to competition authors, create a test clone
 - The temporary local credential works and can be changed.
 - The VM can shut down, start again, and reconnect to the guest agent.
 - Linux SSH host keys are unique when SSH is installed.
-- Windows completes unattended OOBE using the local `kothadmin` account and does not request a Microsoft account.
+- Windows may restart more than once and check for updates while completing OOBE. Allow the test clone to finish without intervention and verify that QEMU Guest Agent reconnects after each restart.
+- Windows completes unattended OOBE using the local `kothadmin` account and does not request a Microsoft account, license acceptance, or other interactive input.
 
 Delete the test clone after validation. Keep the template powered off and treat updates as a rebuild cycle: clone or temporarily convert it to a VM, update it, repeat generalization, validate another clone, and then publish the new template VMID or version.
