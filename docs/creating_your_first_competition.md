@@ -45,18 +45,14 @@ New packages set `schemaVersion` to `2` and use `guestSpecTemplates`/`teamGuestC
   "schemaVersion": 2,
   "guestSpecTemplates": {
     "windows-11": {
-      "kind": "qemu",
-      "os": "windows",
-      "templateVMID": 9001,
+      "templateRef": "koth-template-windows-11-pro-n-workstation",
       "storagePool": "team",
       "username": "kothadmin",
       "password": "replace-this-temporary-password",
-      "diskSizeGB": 40,
+      "diskSizeGB": 129,
       "memoryMB": 4096,
       "cores": 2,
-      "fullClone": true,
-      "bootDisk": "scsi0",
-      "networkConfigurator": "powershell"
+      "fullClone": true
     }
   },
   "teamGuestConfigs": [
@@ -71,9 +67,9 @@ New packages set `schemaVersion` to `2` and use `guestSpecTemplates`/`teamGuestC
 }
 ```
 
-Supported QEMU network configurators are `networkmanager`, `netplan`, and `systemd-networkd` for Linux and `powershell` for Windows. LXC uses `pve`. Omitting `shell` selects `bash` for Linux and `powershell` for Windows; omitting `fullClone` defaults to a full clone.
+For QEMU guests, `templateRef` must match a template in the server's `vm_restrictions.templates` list. The server supplies the trusted VMID, OS, shell, network configurator, and boot disk from that entry; competition packages cannot override those values. Supported QEMU network configurators are `networkmanager`, `netplan`, and `systemd-networkd` for Linux and `powershell` for Windows. LXC uses `pve`. Omitting `fullClone` defaults to a full clone. Proxmox can grow a cloned disk but cannot shrink one, so `diskSizeGB` must be at least as large as the template disk.
 
-Schema version 2 parsing and validation are available now. QEMU packages are rejected with an explicit validation error until the QEMU provisioning provider is implemented in the next feature phase, so they cannot accidentally enter the LXC provisioner.
+Schema version 2 parsing, typed template restrictions, and the low-level QEMU clone/resize/QGA provider are available now. QEMU competition packages are still rejected with an explicit validation error until that provider is connected to full competition orchestration, so they cannot accidentally enter the LXC provisioner.
 
 ### Available Environment Variables
 

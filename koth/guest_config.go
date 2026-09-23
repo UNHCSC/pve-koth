@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/UNHCSC/pve-koth/config"
 	"github.com/UNHCSC/pve-koth/db"
 )
 
@@ -15,6 +16,9 @@ func NormalizeGuestConfiguration(request *db.CreateCompetitionRequest) error {
 	}
 	if request.GuestConfigNormalized {
 		return nil
+	}
+	if err := applyConfiguredVMTemplates(request); err != nil {
+		return err
 	}
 
 	var err error
@@ -36,6 +40,51 @@ func NormalizeGuestConfiguration(request *db.CreateCompetitionRequest) error {
 		return err
 	}
 	request.GuestConfigNormalized = true
+	return nil
+}
+
+func applyConfiguredVMTemplates(request *db.CreateCompetitionRequest) error {
+	for name, template := range request.GuestSpecTemplates {
+		template.TemplateRef = strings.TrimSpace(template.TemplateRef)
+		if template.TemplateRef == "" {
+			continue
+		}
+
+		allowed, ok := config.Config.VMRestrictions.Template(template.TemplateRef)
+		if !ok {
+			return fmt.Errorf("guest template %q references VM template %q which is not allowed", name, template.TemplateRef)
+		}
+		providedKind := db.GuestKind(strings.ToLower(strings.TrimSpace(string(template.Kind))))
+		providedOS := db.GuestOS(strings.ToLower(strings.TrimSpace(string(template.OS))))
+		providedShell := db.ScriptShell(strings.ToLower(strings.TrimSpace(string(template.Shell))))
+		providedConfigurator := db.NetworkConfigurator(strings.ToLower(strings.TrimSpace(string(template.NetworkConfigurator))))
+		if providedKind != "" && providedKind != db.GuestKindQEMU {
+			return fmt.Errorf("guest template %q: templateRef requires kind %q", name, db.GuestKindQEMU)
+		}
+		if template.TemplateVMID != 0 && template.TemplateVMID != allowed.VMID {
+			return fmt.Errorf("guest template %q: templateVMID conflicts with configured VM template %q", name, template.TemplateRef)
+		}
+		if providedOS != "" && providedOS != db.GuestOS(allowed.OS) {
+			return fmt.Errorf("guest template %q: os conflicts with configured VM template %q", name, template.TemplateRef)
+		}
+		if providedShell != "" && providedShell != db.ScriptShell(allowed.Shell) {
+			return fmt.Errorf("guest template %q: shell conflicts with configured VM template %q", name, template.TemplateRef)
+		}
+		if providedConfigurator != "" && providedConfigurator != db.NetworkConfigurator(allowed.NetworkConfigurator) {
+			return fmt.Errorf("guest template %q: networkConfigurator conflicts with configured VM template %q", name, template.TemplateRef)
+		}
+		if template.BootDisk != "" && strings.ToLower(strings.TrimSpace(template.BootDisk)) != allowed.BootDisk {
+			return fmt.Errorf("guest template %q: bootDisk conflicts with configured VM template %q", name, template.TemplateRef)
+		}
+
+		template.Kind = db.GuestKindQEMU
+		template.TemplateVMID = allowed.VMID
+		template.OS = db.GuestOS(allowed.OS)
+		template.Shell = db.ScriptShell(allowed.Shell)
+		template.NetworkConfigurator = db.NetworkConfigurator(allowed.NetworkConfigurator)
+		template.BootDisk = allowed.BootDisk
+		request.GuestSpecTemplates[name] = template
+	}
 	return nil
 }
 
@@ -179,6 +228,7 @@ func normalizeGuestSpecTemplate(name string, template db.GuestSpecTemplate) (db.
 	template.OS = db.GuestOS(strings.ToLower(strings.TrimSpace(string(template.OS))))
 	template.Shell = db.ScriptShell(strings.ToLower(strings.TrimSpace(string(template.Shell))))
 	template.NetworkConfigurator = db.NetworkConfigurator(strings.ToLower(strings.TrimSpace(string(template.NetworkConfigurator))))
+	template.TemplateRef = strings.TrimSpace(template.TemplateRef)
 	template.TemplatePath = strings.TrimSpace(template.TemplatePath)
 	template.StoragePool = strings.TrimSpace(template.StoragePool)
 	template.Username = strings.TrimSpace(template.Username)
@@ -199,6 +249,9 @@ func normalizeGuestSpecTemplate(name string, template db.GuestSpecTemplate) (db.
 
 	switch template.Kind {
 	case db.GuestKindLXC:
+		if template.TemplateRef != "" {
+			return db.GuestSpecTemplate{}, fmt.Errorf("guest template %q: LXC guests cannot set templateRef", name)
+		}
 		if template.OS == "" {
 			template.OS = db.GuestOSLinux
 		}
@@ -230,6 +283,9 @@ func normalizeGuestSpecTemplate(name string, template db.GuestSpecTemplate) (db.
 			return db.GuestSpecTemplate{}, fmt.Errorf("guest template %q missing password", name)
 		}
 	case db.GuestKindQEMU:
+		if template.TemplateRef == "" {
+			return db.GuestSpecTemplate{}, fmt.Errorf("guest template %q missing templateRef", name)
+		}
 		if template.TemplateVMID <= 0 {
 			return db.GuestSpecTemplate{}, fmt.Errorf("guest template %q missing templateVMID", name)
 		}

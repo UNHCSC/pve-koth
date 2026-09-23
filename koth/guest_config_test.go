@@ -4,19 +4,33 @@ import (
 	"encoding/json"
 	"testing"
 
+	"github.com/UNHCSC/pve-koth/config"
 	"github.com/UNHCSC/pve-koth/db"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
+func configureTestVMTemplate(t *testing.T, vmid int, name, osType, shell, networkConfigurator string) {
+	t.Helper()
+	original := config.Config.VMRestrictions
+	config.Config.VMRestrictions = config.VMRestrictionsConfig{Templates: []config.VMTemplateConfig{{
+		VMID:                vmid,
+		Name:                name,
+		OS:                  osType,
+		Shell:               shell,
+		NetworkConfigurator: networkConfigurator,
+		BootDisk:            "scsi0",
+	}}}
+	t.Cleanup(func() { config.Config.VMRestrictions = original })
+}
+
 func TestSchemaVersionTwoJSONDecoding(t *testing.T) {
+	configureTestVMTemplate(t, 9002, "fedora-44", "linux", "bash", "networkmanager")
 	raw := []byte(`{
 		"schemaVersion": 2,
 		"guestSpecTemplates": {
 			"fedora": {
-				"kind": "qemu",
-				"os": "linux",
-				"templateVMID": 9002,
+				"templateRef": "fedora-44",
 				"storagePool": "team",
 				"username": "root",
 				"password": "temporary",
@@ -114,13 +128,12 @@ func TestNormalizeGuestConfigurationVersionTwoLXCProjectsLegacyConfig(t *testing
 }
 
 func TestNormalizeGuestConfigurationWindowsQEMU(t *testing.T) {
+	configureTestVMTemplate(t, 9001, "windows-11", "windows", "powershell", "powershell")
 	request := &db.CreateCompetitionRequest{
 		SchemaVersion: CompetitionSchemaVersion,
 		GuestSpecTemplates: map[string]db.GuestSpecTemplate{
 			"windows-11": {
-				Kind:                db.GuestKindQEMU,
-				OS:                  db.GuestOSWindows,
-				TemplateVMID:        9001,
+				TemplateRef:         "windows-11",
 				StoragePool:         "team",
 				Username:            "kothadmin",
 				Password:            "temporary",
@@ -177,6 +190,7 @@ func TestNormalizeGuestConfigurationRejectsInvalidConfigurations(t *testing.T) {
 					"windows": {
 						Kind:                db.GuestKindQEMU,
 						OS:                  db.GuestOSWindows,
+						TemplateRef:         "windows",
 						TemplateVMID:        9001,
 						StoragePool:         "team",
 						Username:            "admin",
@@ -188,7 +202,7 @@ func TestNormalizeGuestConfigurationRejectsInvalidConfigurations(t *testing.T) {
 					},
 				},
 			},
-			match: "incompatible networkConfigurator",
+			match: "networkConfigurator conflicts",
 		},
 		{
 			name: "team template must exist",
@@ -213,6 +227,9 @@ func TestNormalizeGuestConfigurationRejectsInvalidConfigurations(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
+			if test.name == "windows requires powershell networking" {
+				configureTestVMTemplate(t, 9001, "windows", "windows", "powershell", "powershell")
+			}
 			err := NormalizeGuestConfiguration(&test.request)
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), test.match)

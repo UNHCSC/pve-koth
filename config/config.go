@@ -60,6 +60,7 @@ type Configuration struct {
 
 	Network               NetworkConfig               `toml:"network"`
 	ContainerRestrictions ContainerRestrictionsConfig `toml:"container_restrictions"`
+	VMRestrictions        VMRestrictionsConfig        `toml:"vm_restrictions"`
 }
 
 var Config Configuration
@@ -77,12 +78,113 @@ type NetworkConfig struct {
 }
 
 type ContainerRestrictionsConfig struct {
-	AllowedLXCTemplates  []string `toml:"allowed_lxc_templates" default:"[]"`
-	AllowedQEMUTemplates []int    `toml:"allowed_qemu_templates" default:"[]"`
-	AllowedStoragePools  []string `toml:"allowed_storage_pools" default:"[]"`
-	MaxCPUCores          int      `toml:"max_cpu_cores" default:"4" validate:"min=1"`
-	MaxMemoryMB          int      `toml:"max_memory_mb" default:"8192" validate:"min=1"`
-	MaxDiskMB            int      `toml:"max_disk_mb" default:"32768" validate:"min=1"`
+	AllowedLXCTemplates []string `toml:"allowed_lxc_templates" default:"[]"`
+	AllowedStoragePools []string `toml:"allowed_storage_pools" default:"[]"`
+	MaxCPUCores         int      `toml:"max_cpu_cores" default:"4" validate:"min=1"`
+	MaxMemoryMB         int      `toml:"max_memory_mb" default:"8192" validate:"min=1"`
+	MaxDiskMB           int      `toml:"max_disk_mb" default:"32768" validate:"min=1"`
+}
+
+type VMTemplateConfig struct {
+	VMID                int    `toml:"vmid"`
+	Name                string `toml:"name"`
+	OS                  string `toml:"os"`
+	Shell               string `toml:"shell"`
+	NetworkConfigurator string `toml:"network_configurator"`
+	BootDisk            string `toml:"boot_disk"`
+}
+
+type VMRestrictionsConfig struct {
+	Templates           []VMTemplateConfig `toml:"templates" default:"[]"`
+	AllowedStoragePools []string           `toml:"allowed_storage_pools" default:"[]"`
+	MaxCPUCores         int                `toml:"max_cpu_cores" default:"4" validate:"min=1"`
+	MaxMemoryMB         int                `toml:"max_memory_mb" default:"8192" validate:"min=1"`
+	MaxDiskMB           int                `toml:"max_disk_mb" default:"262144" validate:"min=1"`
+
+	templateLookup map[string]VMTemplateConfig `toml:"-"`
+}
+
+func (r *VMRestrictionsConfig) initialize() error {
+	r.templateLookup = make(map[string]VMTemplateConfig, len(r.Templates))
+	seenIDs := make(map[int]string, len(r.Templates))
+	for index, template := range r.Templates {
+		template.Name = strings.TrimSpace(template.Name)
+		template.OS = strings.ToLower(strings.TrimSpace(template.OS))
+		template.Shell = strings.ToLower(strings.TrimSpace(template.Shell))
+		template.NetworkConfigurator = strings.ToLower(strings.TrimSpace(template.NetworkConfigurator))
+		template.BootDisk = strings.ToLower(strings.TrimSpace(template.BootDisk))
+		if template.BootDisk == "" {
+			template.BootDisk = "scsi0"
+		}
+
+		if template.VMID <= 0 {
+			return fmt.Errorf("templates[%d] has invalid vmid %d", index, template.VMID)
+		}
+		if template.Name == "" {
+			return fmt.Errorf("templates[%d] is missing name", index)
+		}
+		if _, exists := r.templateLookup[template.Name]; exists {
+			return fmt.Errorf("duplicate VM template name %q", template.Name)
+		}
+		if existing, exists := seenIDs[template.VMID]; exists {
+			return fmt.Errorf("VM template %q reuses vmid %d from %q", template.Name, template.VMID, existing)
+		}
+		if template.OS != "linux" && template.OS != "windows" {
+			return fmt.Errorf("VM template %q has invalid os %q", template.Name, template.OS)
+		}
+		if template.Shell != "bash" && template.Shell != "powershell" {
+			return fmt.Errorf("VM template %q has invalid shell %q", template.Name, template.Shell)
+		}
+		if template.OS == "linux" && template.Shell != "bash" {
+			return fmt.Errorf("VM template %q must use bash for linux", template.Name)
+		}
+		if template.OS == "windows" && template.Shell != "powershell" {
+			return fmt.Errorf("VM template %q must use powershell for windows", template.Name)
+		}
+		if !validVMNetworkConfigurator(template.OS, template.NetworkConfigurator) {
+			return fmt.Errorf("VM template %q has incompatible network_configurator %q", template.Name, template.NetworkConfigurator)
+		}
+		if !validVMBootDisk(template.BootDisk) {
+			return fmt.Errorf("VM template %q has invalid boot_disk %q", template.Name, template.BootDisk)
+		}
+
+		r.Templates[index] = template
+		r.templateLookup[template.Name] = template
+		seenIDs[template.VMID] = template.Name
+	}
+	return nil
+}
+
+func validVMNetworkConfigurator(osType, configurator string) bool {
+	if osType == "windows" {
+		return configurator == "powershell"
+	}
+	return configurator == "networkmanager" || configurator == "netplan" || configurator == "systemd-networkd"
+}
+
+func validVMBootDisk(disk string) bool {
+	for _, prefix := range []string{"scsi", "sata", "virtio", "ide"} {
+		if strings.HasPrefix(disk, prefix) {
+			var suffix = strings.TrimPrefix(disk, prefix)
+			if suffix != "" && strings.Trim(suffix, "0123456789") == "" {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func (r *VMRestrictionsConfig) Template(name string) (VMTemplateConfig, bool) {
+	if r == nil {
+		return VMTemplateConfig{}, false
+	}
+	if r.templateLookup == nil {
+		if err := r.initialize(); err != nil {
+			return VMTemplateConfig{}, false
+		}
+	}
+	template, ok := r.templateLookup[strings.TrimSpace(name)]
+	return template, ok
 }
 
 func (n *NetworkConfig) initialize() error {
@@ -163,7 +265,11 @@ func loadConfig(path string) (err error) {
 	}
 
 	if err = Config.Network.initialize(); err != nil {
-		err = fmt.Errorf("network config: %w", err)
+		return fmt.Errorf("network config: %w", err)
+	}
+
+	if err = Config.VMRestrictions.initialize(); err != nil {
+		return fmt.Errorf("vm_restrictions config: %w", err)
 	}
 
 	return

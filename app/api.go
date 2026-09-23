@@ -1505,32 +1505,45 @@ func validateCompetitionTemplates(req *db.CreateCompetitionRequest) error {
 
 	restrictions := config.Config.ContainerRestrictions
 	for name, spec := range req.GuestTemplateLookup {
+		var allowedStoragePools = restrictions.AllowedStoragePools
+		var maxDiskMB = restrictions.MaxDiskMB
+		var maxMemoryMB = restrictions.MaxMemoryMB
+		var maxCPUCores = restrictions.MaxCPUCores
+		var qemuUnsupported bool
 		switch spec.Kind {
 		case db.GuestKindLXC:
 			if len(restrictions.AllowedLXCTemplates) > 0 && !containsString(restrictions.AllowedLXCTemplates, spec.TemplatePath) {
 				return fmt.Errorf("template %q uses disallowed LXC template path %q", name, spec.TemplatePath)
 			}
 		case db.GuestKindQEMU:
-			if len(restrictions.AllowedQEMUTemplates) > 0 && !containsInt(restrictions.AllowedQEMUTemplates, spec.TemplateVMID) {
-				return fmt.Errorf("template %q uses disallowed QEMU template VMID %d", name, spec.TemplateVMID)
+			allowed, ok := config.Config.VMRestrictions.Template(spec.TemplateRef)
+			if !ok || allowed.VMID != spec.TemplateVMID {
+				return fmt.Errorf("template %q uses disallowed VM template %q", name, spec.TemplateRef)
 			}
-			return fmt.Errorf("template %q uses QEMU, but full-VM provisioning is not implemented yet", name)
+			allowedStoragePools = config.Config.VMRestrictions.AllowedStoragePools
+			maxDiskMB = config.Config.VMRestrictions.MaxDiskMB
+			maxMemoryMB = config.Config.VMRestrictions.MaxMemoryMB
+			maxCPUCores = config.Config.VMRestrictions.MaxCPUCores
+			qemuUnsupported = true
 		}
-		if len(restrictions.AllowedStoragePools) > 0 && !containsString(restrictions.AllowedStoragePools, spec.StoragePool) {
+		if len(allowedStoragePools) > 0 && !containsString(allowedStoragePools, spec.StoragePool) {
 			return fmt.Errorf("template %q uses disallowed storage pool %q", name, spec.StoragePool)
 		}
 
-		if restrictions.MaxDiskMB > 0 {
+		if maxDiskMB > 0 {
 			storageMB := int64(spec.DiskSizeGB) * 1024
-			if storageMB > int64(restrictions.MaxDiskMB) {
-				return fmt.Errorf("template %q requests %d MB which exceeds maxDiskMB (%d)", name, storageMB, restrictions.MaxDiskMB)
+			if storageMB > int64(maxDiskMB) {
+				return fmt.Errorf("template %q requests %d MB which exceeds maxDiskMB (%d)", name, storageMB, maxDiskMB)
 			}
 		}
-		if restrictions.MaxMemoryMB > 0 && spec.MemoryMB > restrictions.MaxMemoryMB {
-			return fmt.Errorf("template %q requests %d MB of RAM which exceeds maxMemoryMB (%d)", name, spec.MemoryMB, restrictions.MaxMemoryMB)
+		if maxMemoryMB > 0 && spec.MemoryMB > maxMemoryMB {
+			return fmt.Errorf("template %q requests %d MB of RAM which exceeds maxMemoryMB (%d)", name, spec.MemoryMB, maxMemoryMB)
 		}
-		if restrictions.MaxCPUCores > 0 && spec.Cores > restrictions.MaxCPUCores {
-			return fmt.Errorf("template %q requests %d cores which exceeds maxCPUCores (%d)", name, spec.Cores, restrictions.MaxCPUCores)
+		if maxCPUCores > 0 && spec.Cores > maxCPUCores {
+			return fmt.Errorf("template %q requests %d cores which exceeds maxCPUCores (%d)", name, spec.Cores, maxCPUCores)
+		}
+		if qemuUnsupported {
+			return fmt.Errorf("template %q uses QEMU, but full-VM competition orchestration is not implemented yet", name)
 		}
 	}
 
@@ -1544,15 +1557,6 @@ func validateCompetitionTemplates(req *db.CreateCompetitionRequest) error {
 	}
 
 	return nil
-}
-
-func containsInt(list []int, value int) bool {
-	for _, entry := range list {
-		if entry == value {
-			return true
-		}
-	}
-	return false
 }
 
 func containsString(list []string, value string) bool {

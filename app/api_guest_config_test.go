@@ -37,16 +37,26 @@ func TestValidateCompetitionTemplatesAcceptsLegacyConfiguration(t *testing.T) {
 
 func TestValidateCompetitionTemplatesRejectsQEMUUntilProviderExists(t *testing.T) {
 	original := config.Config.ContainerRestrictions
+	originalVM := config.Config.VMRestrictions
 	config.Config.ContainerRestrictions = config.ContainerRestrictionsConfig{}
-	t.Cleanup(func() { config.Config.ContainerRestrictions = original })
+	config.Config.VMRestrictions = config.VMRestrictionsConfig{Templates: []config.VMTemplateConfig{{
+		VMID:                9001,
+		Name:                "windows-11",
+		OS:                  "windows",
+		Shell:               "powershell",
+		NetworkConfigurator: "powershell",
+		BootDisk:            "scsi0",
+	}}}
+	t.Cleanup(func() {
+		config.Config.ContainerRestrictions = original
+		config.Config.VMRestrictions = originalVM
+	})
 
 	request := &db.CreateCompetitionRequest{
 		SchemaVersion: koth.CompetitionSchemaVersion,
 		GuestSpecTemplates: map[string]db.GuestSpecTemplate{
 			"windows": {
-				Kind:                db.GuestKindQEMU,
-				OS:                  db.GuestOSWindows,
-				TemplateVMID:        9001,
+				TemplateRef:         "windows-11",
 				StoragePool:         "team",
 				Username:            "kothadmin",
 				Password:            "temporary",
@@ -63,5 +73,5 @@ func TestValidateCompetitionTemplatesRejectsQEMUUntilProviderExists(t *testing.T
 
 	err := validateCompetitionTemplates(request)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "full-VM provisioning is not implemented yet")
+	assert.Contains(t, err.Error(), "full-VM competition orchestration is not implemented yet")
 }

@@ -223,6 +223,7 @@ type GuestSpecTemplate struct {
 	Kind                GuestKind           `json:"kind"`
 	OS                  GuestOS             `json:"os"`
 	Shell               ScriptShell         `json:"shell"`
+	TemplateRef         string              `json:"templateRef,omitempty"`
 	TemplatePath        string              `json:"templatePath,omitempty"`
 	TemplateVMID        int                 `json:"templateVMID,omitempty"`
 	StoragePool         string              `json:"storagePool"`
