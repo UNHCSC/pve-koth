@@ -102,7 +102,8 @@ func redeployContainer(log ProgressLogger, id int64, startAfter, enableAdvancedL
 	if guestSpec, err = ResolveGuestSpecTemplate(req.GuestTemplateLookup, cfg.GuestSpecsTemplate); err != nil {
 		return fmt.Errorf("resolve template for %s: %w", cfg.Name, err)
 	}
-	hostname := fmt.Sprintf("%s-team-%d-%s", comp.ContainerRestrictions.HostnamePrefix, teamIndex+1, cfg.Name)
+	resourceName := guestResourceName(comp.ContainerRestrictions.HostnamePrefix, teamIndex+1, cfg.Name)
+	hostname := resourceName
 	if guestSpec.Kind == db.GuestKindQEMU && guestSpec.OS == db.GuestOSWindows {
 		hostname = windowsComputerName(teamIndex+1, cfg.Name)
 	}
@@ -111,6 +112,7 @@ func redeployContainer(log ProgressLogger, id int64, startAfter, enableAdvancedL
 		team:          team,
 		name:          cfg.Name,
 		sanitizedName: sanitizeContainerName(cfg.Name),
+		resourceName:  resourceName,
 		order:         cfgIndex,
 		ipAddress:     record.IPAddress,
 		setupScripts:  append([]string(nil), cfg.SetupScript...),
@@ -153,7 +155,7 @@ func redeployContainer(log ProgressLogger, id int64, startAfter, enableAdvancedL
 			VMID:         int(record.PVEID),
 			TemplateVMID: guestSpec.TemplateVMID,
 			TemplateName: guestSpec.TemplateRef,
-			Name:         hostname,
+			Name:         resourceName,
 			StoragePool:  guestSpec.StoragePool,
 			Full:         guestSpec.FullCloneEnabled(),
 			Cores:        guestSpec.Cores,

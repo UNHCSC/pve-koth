@@ -94,5 +94,7 @@ func (job *streamJob) markDone() {
 }
 
 func sanitizeLogMessage(message string) string {
+	message = strings.ReplaceAll(message, "\r\n", " ")
+	message = strings.ReplaceAll(message, "\r", " ")
 	return strings.ReplaceAll(message, "\n", " ")
 }

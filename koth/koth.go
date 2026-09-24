@@ -89,6 +89,7 @@ type guestPlan struct {
 	team          *db.Team
 	name          string
 	sanitizedName string
+	resourceName  string
 	order         int
 	ipAddress     string
 	setupScripts  []string
@@ -313,7 +314,8 @@ func CreateNewCompWithLogger(request *db.CreateCompetitionRequest, logSink Progr
 				localLog.Errorf("Failed to resolve template for %s: %v\n", templateCfg.Name, err)
 				return
 			}
-			hostname := fmt.Sprintf("%s-team-%d-%s", comp.ContainerRestrictions.HostnamePrefix, teamIndex+1, templateCfg.Name)
+			resourceName := guestResourceName(comp.ContainerRestrictions.HostnamePrefix, teamIndex+1, templateCfg.Name)
+			hostname := resourceName
 			if guestSpec.OS == db.GuestOSWindows {
 				hostname = windowsComputerName(teamIndex+1, sanitizedName)
 			}
@@ -322,6 +324,7 @@ func CreateNewCompWithLogger(request *db.CreateCompetitionRequest, logSink Progr
 				team:          team,
 				name:          templateCfg.Name,
 				sanitizedName: sanitizedName,
+				resourceName:  resourceName,
 				order:         templateOrder,
 				ipAddress:     hostIP.String(),
 				setupScripts:  append([]string(nil), templateCfg.SetupScript...),
@@ -356,7 +359,7 @@ func CreateNewCompWithLogger(request *db.CreateCompetitionRequest, logSink Progr
 				plan.vmOptions = &proxmoxAPI.VMCloneOptions{
 					TemplateVMID: guestSpec.TemplateVMID,
 					TemplateName: guestSpec.TemplateRef,
-					Name:         hostname,
+					Name:         resourceName,
 					StoragePool:  guestSpec.StoragePool,
 					Full:         guestSpec.FullCloneEnabled(),
 					Cores:        guestSpec.Cores,
@@ -542,7 +545,7 @@ func provisionVMPlan(ctx context.Context, log ProgressLogger, plan *guestPlan, c
 	if plan.vmOptions == nil {
 		return nil, fmt.Errorf("VM options missing for %s", plan.hostname)
 	}
-	log.Statusf("Cloning VM %s for %s...", plan.hostname, plan.team.Name)
+	log.Statusf("Cloning VM %s for %s...", plan.resourceName, plan.team.Name)
 	vm, cloneErr := api.CloneVirtualMachine(*plan.vmOptions)
 	if vm != nil {
 		entry = &provisionedGuest{plan: plan, vm: vm, pveID: int(vm.VMID)}
@@ -584,7 +587,7 @@ func provisionVMPlan(ctx context.Context, log ProgressLogger, plan *guestPlan, c
 	if updateErr := db.Containers.Update(record); updateErr != nil {
 		log.Errorf("Failed to update VM %d metadata: %v\n", vm.VMID, updateErr)
 	}
-	log.Statusf("VM %s (VMID: %d) provisioned successfully.", plan.hostname, vm.VMID)
+	log.Statusf("VM %s (VMID: %d) provisioned successfully.", plan.resourceName, vm.VMID)
 	return entry, nil
 }
 
@@ -625,7 +628,7 @@ func runSetupScripts(log ProgressLogger, api *proxmoxAPI.ProxmoxAPI, ct *proxmox
 		if plan.guestKind == db.GuestKindQEMU {
 			var result proxmoxAPI.VMCommandResult
 			result, err = api.ExecuteVirtualMachineCommand(vm, powershellCommand(powershellScriptInvocation(scriptURL, token, envs)), "", 15*time.Minute)
-			stdout, stderr, exitCode = result.Stdout, result.Stderr, result.ExitCode
+			stdout, stderr, exitCode = readablePowerShellOutput(result.Stdout), readablePowerShellOutput(result.Stderr), result.ExitCode
 		} else {
 			stdout, stderr, exitCode, err = api.RawExecuteWithRetries(ct, "root", plan.password, command, 2)
 		}
@@ -642,6 +645,9 @@ func runSetupScripts(log ProgressLogger, api *proxmoxAPI.ProxmoxAPI, ct *proxmox
 
 		if exitCode != 0 {
 			err = fmt.Errorf("setup script %s exited with code %d", scriptPath, exitCode)
+			if strings.TrimSpace(stderr) != "" {
+				err = fmt.Errorf("%w: %s", err, summarizeScriptOutput(stderr))
+			}
 			log.Errorf("%v\n", err)
 			return
 		}

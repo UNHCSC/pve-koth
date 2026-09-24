@@ -2,8 +2,12 @@ package koth
 
 import (
 	"encoding/base64"
+	"encoding/xml"
 	"fmt"
+	"io"
+	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 	"unicode/utf16"
@@ -12,6 +16,8 @@ import (
 	"github.com/UNHCSC/pve-koth/proxmoxAPI"
 	"github.com/luthermonson/go-proxmox"
 )
+
+var powerShellEncodedCharacter = regexp.MustCompile(`(?i)_x([0-9a-f]{4})_`)
 
 func waitForWindowsReady(api *proxmoxAPI.ProxmoxAPI, vm *proxmox.VirtualMachine, timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
@@ -72,12 +78,77 @@ func powershellQuote(value string) string {
 	return "'" + strings.ReplaceAll(value, "'", "''") + "'"
 }
 
+func readablePowerShellOutput(value string) string {
+	value = strings.TrimSpace(strings.TrimPrefix(value, "\ufeff"))
+	if value == "" || !strings.Contains(value, "#< CLIXML") {
+		return value
+	}
+
+	xmlStart := strings.Index(value, "<Objs")
+	if xmlStart < 0 {
+		return normalizePowerShellText(strings.TrimSpace(strings.TrimPrefix(value, "#< CLIXML")))
+	}
+	decoder := xml.NewDecoder(strings.NewReader(value[xmlStart:]))
+	var messages []string
+	for {
+		token, err := decoder.Token()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return normalizePowerShellText(strings.TrimSpace(strings.TrimPrefix(value, "#< CLIXML")))
+		}
+		start, ok := token.(xml.StartElement)
+		if !ok || start.Name.Local != "S" {
+			continue
+		}
+		isError := false
+		for _, attr := range start.Attr {
+			if attr.Name.Local == "S" && strings.EqualFold(attr.Value, "Error") {
+				isError = true
+				break
+			}
+		}
+		if !isError {
+			continue
+		}
+		var message string
+		if err = decoder.DecodeElement(&message, &start); err == nil {
+			message = normalizePowerShellText(message)
+			if message != "" {
+				messages = append(messages, message)
+			}
+		}
+	}
+	if len(messages) == 0 {
+		return normalizePowerShellText(strings.TrimSpace(strings.TrimPrefix(value, "#< CLIXML")))
+	}
+	return strings.Join(messages, "\n")
+}
+
+func normalizePowerShellText(value string) string {
+	value = powerShellEncodedCharacter.ReplaceAllStringFunc(value, func(encoded string) string {
+		code, err := strconv.ParseInt(encoded[2:6], 16, 32)
+		if err != nil {
+			return encoded
+		}
+		return string(rune(code))
+	})
+	value = strings.ReplaceAll(value, "\r\n", "\n")
+	value = strings.ReplaceAll(value, "\r", "\n")
+	return strings.TrimSpace(value)
+}
+
 func windowsComputerName(teamNumber int, guestName string) string {
 	name := fmt.Sprintf("KOTH-T%d-%s", teamNumber, strings.ToUpper(sanitizeContainerName(guestName)))
 	if len(name) > 15 {
 		name = name[:15]
 	}
 	return strings.TrimRight(name, "-")
+}
+
+func guestResourceName(hostnamePrefix string, teamNumber int, guestName string) string {
+	return fmt.Sprintf("%s-team-%d-%s", hostnamePrefix, teamNumber, guestName)
 }
 
 func powershellScriptInvocation(scriptURL, token string, envs map[string]any) string {

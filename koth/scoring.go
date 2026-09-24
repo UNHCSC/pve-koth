@@ -253,7 +253,7 @@ func scoreTeam(comp *db.Competition, team *db.Team, teamIndex int, configs []db.
 			scoringLog.Errorf("failed to resolve template %s for %s: %v\n", guestCfg.GuestSpecsTemplate, guestCfg.Name, specErr)
 			continue
 		}
-		hostname := fmt.Sprintf("%s-team-%d-%s", comp.ContainerRestrictions.HostnamePrefix, teamIndex+1, guestCfg.Name)
+		hostname := guestResourceName(comp.ContainerRestrictions.HostnamePrefix, teamIndex+1, guestCfg.Name)
 
 		plan := &guestPlan{
 			team:          team,
@@ -374,7 +374,7 @@ func scoreContainer(comp *db.Competition, plan *guestPlan, network *teamNetwork,
 			if vm, execErr = api.VirtualMachine(int(record.PVEID)); execErr == nil {
 				var commandResult proxmoxAPI.VMCommandResult
 				commandResult, execErr = api.ExecuteVirtualMachineCommand(vm, powershellCommand(powershellScriptInvocation(scriptURL, token, envs)), "", 5*time.Minute)
-				stdout, stderr, exitCode = commandResult.Stdout, commandResult.Stderr, commandResult.ExitCode
+				stdout, stderr, exitCode = readablePowerShellOutput(commandResult.Stdout), readablePowerShellOutput(commandResult.Stderr), commandResult.ExitCode
 			}
 		} else {
 			var ct *proxmox.Container
