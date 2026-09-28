@@ -1,4 +1,5 @@
 {
+    "schemaVersion": 2,
     "competitionID": "exampleComp",
     "competitionName": "Example Competition",
     "competitionDescription": "This is an example competition.",
@@ -8,29 +9,39 @@
         "public": true,
         "ldapAllowedGroupsFilter": []
     },
-    "containerSpecsTemplates": {
+    "guestSpecTemplates": {
         "ubuntu-light": {
+            "kind": "lxc",
+            "os": "linux",
+            "shell": "bash",
             "templatePath": "isos-ct_templates:vztmpl/ubuntu-25.04-standard_25.04-1.1_amd64.tar.zst",
             "storagePool": "team",
-            "rootPassword": "password123",
-            "storageSizeGB": 8,
+            "username": "root",
+            "password": "password123",
+            "diskSizeGB": 8,
             "memoryMB": 512,
-            "cores": 1
+            "cores": 1,
+            "networkConfigurator": "pve"
         },
         "ubuntu-heavy": {
+            "kind": "lxc",
+            "os": "linux",
+            "shell": "bash",
             "templatePath": "isos-ct_templates:vztmpl/ubuntu-25.04-standard_25.04-1.1_amd64.tar.zst",
             "storagePool": "team",
-            "rootPassword": "password123",
-            "storageSizeGB": 16,
+            "username": "root",
+            "password": "password123",
+            "diskSizeGB": 16,
             "memoryMB": 2048,
-            "cores": 2
+            "cores": 2,
+            "networkConfigurator": "pve"
         }
     },
-    "teamContainerConfigs": [
+    "teamGuestConfigs": [
         {
             "name": "website",
             "lastOctetValue": 1,
-            "containerSpecsTemplate": "ubuntu-heavy",
+            "guestSpecsTemplate": "ubuntu-heavy",
             "setupScript": ["scripts/setup_global_apt.sh", "scripts/setup_website.sh"],
             "scoringScript": ["scripts/score_global.sh", "scripts/score_website.sh"],
             "scoringSchema": [
@@ -63,7 +74,7 @@
         {
             "name": "grafana",
             "lastOctetValue": 2,
-            "containerSpecsTemplate": "ubuntu-light",
+            "guestSpecsTemplate": "ubuntu-light",
             "setupScript": ["scripts/setup_global_apt.sh", "scripts/setup_grafana.sh"],
             "scoringScript": ["scripts/score_global.sh", "scripts/score_grafana.sh"],
             "scoringSchema": [

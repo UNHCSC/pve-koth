@@ -1392,6 +1392,7 @@ func loadTeamScoreResults(teamID int64) ([]scoreboardContainer, error) {
 	if len(records) == 0 {
 		return []scoreboardContainer{}, nil
 	}
+	records = latestScoreResults(records)
 
 	sort.SliceStable(records, func(i, j int) bool {
 		if records[i].ContainerOrder == records[j].ContainerOrder {
@@ -1429,6 +1430,26 @@ func loadTeamScoreResults(teamID int64) ([]scoreboardContainer, error) {
 	}
 
 	return containers, nil
+}
+
+func latestScoreResults(records []*db.ScoreResult) []*db.ScoreResult {
+	latestByKey := make(map[string]*db.ScoreResult, len(records))
+	for _, record := range records {
+		if record == nil {
+			continue
+		}
+		key := strings.ToLower(strings.TrimSpace(record.ContainerName)) + "\x00" + strings.TrimSpace(record.CheckID)
+		current := latestByKey[key]
+		if current == nil || record.UpdatedAt.After(current.UpdatedAt) || (record.UpdatedAt.Equal(current.UpdatedAt) && record.ID > current.ID) {
+			latestByKey[key] = record
+		}
+	}
+
+	latest := make([]*db.ScoreResult, 0, len(latestByKey))
+	for _, record := range latestByKey {
+		latest = append(latest, record)
+	}
+	return latest
 }
 
 func persistCompetitionPackage(req *db.CreateCompetitionRequest, configBytes []byte, originalFilename string) (record *db.CompetitionPackage, err error) {

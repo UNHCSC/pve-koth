@@ -25,6 +25,7 @@ const scoringInterval = time.Minute
 var (
 	scoringLog      *logger.Logger = logger.NewLogger().SetPrefix("[SCORE]", logger.BoldYellow).IncludeTimestamp()
 	scoringLoopOnce sync.Once
+	scoringPassMu   sync.Mutex
 )
 
 type containerScoreResult struct {
@@ -50,17 +51,24 @@ func StartScoringLoop() {
 
 func scoringLoop() {
 	scoringLog.Basicf("scoring loop started (interval %s)\n", scoringInterval)
-	runScoringPass()
+	runScoringPass("startup")
 
 	ticker := time.NewTicker(scoringInterval)
 	defer ticker.Stop()
 
 	for range ticker.C {
-		runScoringPass()
+		runScoringPass("scheduled")
 	}
 }
 
-func runScoringPass() {
+func runScoringPass(reason string) {
+	if !scoringPassMu.TryLock() {
+		scoringLog.Statusf("skipping %s scoring pass because another pass is still running\n", reason)
+		return
+	}
+	defer scoringPassMu.Unlock()
+
+	started := time.Now()
 	comps, err := db.Competitions.SelectAll()
 	if err != nil {
 		scoringLog.Errorf("failed to load competitions for scoring: %v\n", err)
@@ -71,12 +79,16 @@ func runScoringPass() {
 		return
 	}
 
-	var wg sync.WaitGroup
+	var (
+		wg     sync.WaitGroup
+		active int
+	)
 	for _, comp := range comps {
 		if comp == nil || !comp.ScoringActive {
 			continue
 		}
 
+		active++
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
@@ -87,9 +99,12 @@ func runScoringPass() {
 	}
 
 	wg.Wait()
+	scoringLog.Statusf("completed %s scoring pass for %d active competition(s) in %s\n", reason, active, time.Since(started).Round(time.Millisecond))
 }
 
 func ScoreCompetitionNow(comp *db.Competition) error {
+	scoringPassMu.Lock()
+	defer scoringPassMu.Unlock()
 	return scoreCompetition(comp)
 }
 
@@ -138,6 +153,7 @@ func scoreCompetition(comp *db.Competition) (err error) {
 		req       *db.CreateCompetitionRequest
 		compNet   *net.IPNet
 		logPrefix = fmt.Sprintf("competition %s", comp.SystemID)
+		started   = time.Now()
 	)
 
 	if !comp.ScoringActive {
@@ -149,6 +165,7 @@ func scoreCompetition(comp *db.Competition) (err error) {
 	}
 
 	if len(req.TeamGuestConfigs) == 0 || len(comp.TeamIDs) == 0 {
+		scoringLog.Statusf("%s has no teams or scoring configs; skipping\n", logPrefix)
 		return nil
 	}
 
@@ -189,17 +206,22 @@ func scoreCompetition(comp *db.Competition) (err error) {
 				scoringLog.Errorf("team %s scoring had errors: %v\n", team.Name, teamErr)
 			}
 
-			persistScoreResults(team.ID, containerResults)
+			if persistErr := persistScoreResults(team.ID, containerResults); persistErr != nil {
+				scoringLog.Errorf("failed to persist score details for team %s: %v\n", team.Name, persistErr)
+			}
 
-			team.Score += teamScore
+			team.Score = teamScore
 			team.LastUpdated = time.Now()
 			if dbErr := db.Teams.Update(team); dbErr != nil {
 				scoringLog.Errorf("failed to update team %d: %v\n", team.ID, dbErr)
+			} else {
+				scoringLog.Statusf("%s team %s scored %d point(s) from %d guest result(s)\n", comp.SystemID, team.Name, teamScore, len(containerResults))
 			}
 		}(idx, teamID)
 	}
 
 	wg.Wait()
+	scoringLog.Statusf("%s scoring completed in %s\n", logPrefix, time.Since(started).Round(time.Millisecond))
 
 	return nil
 }
@@ -306,6 +328,10 @@ func scoreContainer(comp *db.Competition, plan *guestPlan, network *teamNetwork,
 	if plan == nil || len(checks) == 0 {
 		return 0, result
 	}
+	started := time.Now()
+	defer func() {
+		scoringLog.Statusf("scored %s: %d check(s), %d script(s), duration %s\n", plan.hostname, len(result.Checks), len(scoringScripts), time.Since(started).Round(time.Millisecond))
+	}()
 
 	var (
 		schemaIndex = make(map[string]int)
@@ -366,6 +392,7 @@ func scoreContainer(comp *db.Competition, plan *guestPlan, network *teamNetwork,
 		}
 
 		scriptURL := buildArtifactFileURL(artifactBaseURL, scriptPath)
+		scriptStarted := time.Now()
 		var stdout, stderr string
 		var exitCode int
 		var execErr error
@@ -384,12 +411,13 @@ func scoreContainer(comp *db.Competition, plan *guestPlan, network *teamNetwork,
 			}
 		}
 		if execErr != nil {
-			scoringLog.Errorf("failed to execute scoring script %s on %s: %v\n", scriptPath, plan.hostname, execErr)
+			scoringLog.Errorf("failed to execute scoring script %s on %s after %s: %v\n", scriptPath, plan.hostname, time.Since(scriptStarted).Round(time.Millisecond), execErr)
 		} else if exitCode != 0 {
-			scoringLog.Errorf("scoring script %s exited %d on %s\nStdout:\n%s\nStderr:\n%s\n", scriptPath, exitCode, plan.hostname, summarizeScriptOutput(stdout), summarizeScriptOutput(stderr))
+			scoringLog.Errorf("scoring script %s exited %d on %s after %s\nStdout:\n%s\nStderr:\n%s\n", scriptPath, exitCode, plan.hostname, time.Since(scriptStarted).Round(time.Millisecond), summarizeScriptOutput(stdout), summarizeScriptOutput(stderr))
 		} else if payload, parseErr := parseCheckPayload([]byte(stdout)); parseErr != nil {
-			scoringLog.Errorf("invalid scoring payload from %s (%s): %v\nStdout:\n%s\nStderr:\n%s\n", plan.hostname, scriptPath, parseErr, summarizeScriptOutput(stdout), summarizeScriptOutput(stderr))
+			scoringLog.Errorf("invalid scoring payload from %s (%s, %s): %v\nStdout:\n%s\nStderr:\n%s\n", plan.hostname, scriptPath, time.Since(scriptStarted).Round(time.Millisecond), parseErr, summarizeScriptOutput(stdout), summarizeScriptOutput(stderr))
 		} else {
+			scoringLog.Statusf("scoring script %s on %s completed in %s with %d reported check(s)\n", scriptPath, plan.hostname, time.Since(scriptStarted).Round(time.Millisecond), len(payload))
 			for rawID, passed := range payload {
 				id := strings.TrimSpace(rawID)
 				if id == "" {
@@ -422,17 +450,15 @@ func scoreContainer(comp *db.Competition, plan *guestPlan, network *teamNetwork,
 	return total, result
 }
 
-func persistScoreResults(teamID int64, containers []containerScoreResult) {
+func persistScoreResults(teamID int64, containers []containerScoreResult) error {
 	filter := gomysql.NewFilter().KeyCmp(db.ScoreResults.FieldBySQLName("team_id"), gomysql.OpEqual, teamID)
-	if previous, err := db.ScoreResults.SelectAllWithFilter(filter); err == nil {
-		for _, entry := range previous {
-			_ = db.ScoreResults.Delete(entry.ID)
-		}
-	} else {
-		scoringLog.Errorf("failed to load score results for team %d: %v\n", teamID, err)
+	previous, err := db.ScoreResults.SelectAllWithFilter(filter)
+	if err != nil {
+		return fmt.Errorf("load previous score results: %w", err)
 	}
 
 	timestamp := time.Now()
+	inserted := make([]int64, 0)
 	for _, container := range containers {
 		for _, check := range container.Checks {
 			record := &db.ScoreResult{
@@ -449,10 +475,23 @@ func persistScoreResults(teamID int64, containers []containerScoreResult) {
 			}
 
 			if err := db.ScoreResults.Insert(record); err != nil {
-				scoringLog.Errorf("failed to persist score result for team %d: %v\n", teamID, err)
+				for _, id := range inserted {
+					_ = db.ScoreResults.Delete(id)
+				}
+				return fmt.Errorf("insert score result: %w", err)
 			}
+			inserted = append(inserted, record.ID)
 		}
 	}
+
+	for _, entry := range previous {
+		if err := db.ScoreResults.Delete(entry.ID); err != nil {
+			return fmt.Errorf("delete stale score result %d: %w", entry.ID, err)
+		}
+	}
+
+	scoringLog.Statusf("persisted %d score result(s) for team %d (replaced %d old result(s))\n", len(inserted), teamID, len(previous))
+	return nil
 }
 
 func parseCheckPayload(raw []byte) (map[string]bool, error) {

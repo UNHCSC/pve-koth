@@ -11,7 +11,7 @@ competition.zip
 └── writeup.pdf           # (or any other artifact you prefer to stash)
 ```
 
-The example archive ships with two container configs (`website` and `grafana`) and demonstrates how to combine shared/global scripts (`scripts/setup_global.sh`/`scripts/score_global.sh`) with container-specific ones. Look at `examples/competition_config/README.md` for a narrative you can copy when teaching teams about the competition.
+The example archive ships with two Linux LXC guest configs (`website` and `grafana`) and demonstrates how to combine shared/global scripts (`scripts/setup_global_apt.sh`/`scripts/score_global.sh`) with guest-specific ones. Look at `examples/competition_config/README.md` for a narrative you can copy when teaching teams about the competition.
 
 ### Populating `config.json`
 
@@ -20,17 +20,18 @@ Use the sample `config.json` as a template. Important keys:
 - `competitionID`, `competitionName`, `competitionDescription`, and `competitionHost` describe the competition itself.
 - `numTeams` controls how many team slots are created.
 - `privacy.public` toggles visibility; `ldapAllowedGroupsFilter` can limit access to specific groups.
-- `containerSpecsTemplates` maps a name to the resource definition every container may use (template path, storage pool, root password, disk/memory/CPU limits, etc.).
-- `teamContainerConfigs` contains an array of container definitions with:
+- `schemaVersion` should be `2` for new competition packages.
+- `guestSpecTemplates` maps a name to the resource definition every guest may use (kind, template path/ref, storage pool, credentials, disk/memory/CPU limits, etc.).
+- `teamGuestConfigs` contains an array of guest definitions with:
   - `name` (human label used in the dashboard),
   - `lastOctetValue` (the octet offset used when allocating IPs in the competition block),
-  - `containerSpecsTemplate` (the template name defined above that the container should be built from),
+  - `guestSpecsTemplate` (the template name defined above that the guest should be built from),
   - `setupScript`/`scoringScript` arrays that reference files inside `scripts/`,
   - `scoringSchema`, the checks the scoring loops execute.
 - `setupPublicFolder` points to a subdirectory (like `public`) that will be served to containers when they download static assets.
 - `writeupFilePath` can reference a Markdown or PDF file to share with participants after provisioning.
 
-The new network defaults (gateway, DNS, search domain, constraint CIDRs) now live under `config.toml`'s `[network]` section so individual competition configs stop repeating them, and `[container_restrictions]` lets operators whitelist specific templates/pools and cap CPU/memory/disk usage for uploaded packages.
+The network defaults (gateway, DNS, search domain, constraint CIDRs) live under `config.toml`'s `[network]` section so individual competition configs do not repeat them, and `[container_restrictions]` lets operators whitelist specific LXC templates/pools and cap CPU/memory/disk usage for uploaded packages.
 
 When you're ready to upload, zip the folder so that `config.json` is at the archive root and upload via the dashboard's create competition modal.
 
